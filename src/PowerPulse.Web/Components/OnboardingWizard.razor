@@ -1,0 +1,351 @@
+@inject IStorageService StorageService
+@inject HttpClient Http
+
+<div class="modal-backdrop-custom" role="dialog" aria-modal="true" aria-labelledby="onboard-title">
+    <div class="modal-dialog-custom" style="max-width: 650px;">
+        <!-- Header -->
+        <div class="modal-header-custom">
+            <div>
+                <h2 id="onboard-title" class="card-title-lg" style="margin: 0; font-size: 18px;">
+                    Welcome to PowerPulse
+                </h2>
+                <div class="card-subtitle-sm">Household Setup Wizard — Step @currentStep of 5</div>
+            </div>
+            <!-- Progress indicator -->
+            <div class="d-flex gap-1">
+                @for (int i = 1; i <= 5; i++)
+                {
+                    <div style="width: 24px; height: 6px; border-radius: 3px; background-color: @(i <= currentStep ? "var(--primary-green)" : "#E2E8F0");"></div>
+                }
+            </div>
+        </div>
+
+        <!-- Body -->
+        <div class="modal-body-custom">
+            @if (currentStep == 1)
+            {
+                <!-- Step 1: Household Information -->
+                <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 8px;">Household Information</h3>
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                    Configure your household profile to localize energy insights and currency figures.
+                </p>
+
+                <div class="mb-3">
+                    <label class="form-label-custom">Household Name</label>
+                    <input type="text" class="form-control-custom" @bind="profile.Name" placeholder="e.g. Oak Street Residence" />
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label-custom">Country / Region</label>
+                        <input type="text" class="form-control-custom" @bind="profile.Country" placeholder="e.g. United States" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label-custom">Preferred Currency Symbol</label>
+                        <select class="form-control-custom" @bind="profile.Currency">
+                            <option value="$">$ (USD / CAD / AUD)</option>
+                            <option value="€">€ (EUR)</option>
+                            <option value="£">£ (GBP)</option>
+                            <option value="₹">₹ (INR)</option>
+                            <option value="¥">¥ (JPY / CNY)</option>
+                            <option value="kr">kr (SEK / NOK / DKK)</option>
+                            <option value="R$">R$ (BRL)</option>
+                            <option value="CHF">CHF</option>
+                        </select>
+                    </div>
+                </div>
+            }
+            else if (currentStep == 2)
+            {
+                <!-- Step 2: Electricity Billing Setup -->
+                <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 8px;">Electricity Billing Setup</h3>
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                    Configure your electricity tariff plan to estimate bills. You can skip this and configure it anytime in Settings.
+                </p>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label-custom">Billing Cycle Start Day of Month</label>
+                        <input type="number" class="form-control-custom" min="1" max="28" @bind="profile.BillingCycleStartDay" />
+                        <small style="color: var(--text-secondary); font-size: 11px;">Day of month the billing cycle begins (1-28).</small>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label-custom">Tariff Structure</label>
+                        <select class="form-control-custom" @bind="tariff.Type">
+                            <option value="@TariffType.Flat">Flat Rate (Single price per kWh)</option>
+                            <option value="@TariffType.Slab">Tiered / Slab Rate</option>
+                            <option value="@TariffType.TimeOfUse">Time-of-Use (Peak / Off-peak)</option>
+                        </select>
+                    </div>
+                </div>
+
+                @if (tariff.Type == TariffType.Flat)
+                {
+                    <div class="mb-3">
+                        <label class="form-label-custom">Electricity Rate per kWh (@profile.Currency)</label>
+                        <input type="number" step="0.001" class="form-control-custom" @bind="tariff.FlatRatePerKwh" />
+                    </div>
+                }
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <label class="form-label-custom">Monthly Fixed Charges (@profile.Currency)</label>
+                        <input type="number" step="0.5" class="form-control-custom" @bind="tariff.FixedCharge" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label-custom">Tax / Regulatory Surcharge (%)</label>
+                        <input type="number" step="0.1" class="form-control-custom" @bind="tariff.TaxPercentage" />
+                    </div>
+                </div>
+            }
+            else if (currentStep == 3)
+            {
+                <!-- Step 3: Initial Data -->
+                <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 8px;">Load Initial Energy Data</h3>
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+                    PowerPulse needs consumption readings to power its analytics, charts, and anomaly detection.
+                </p>
+
+                <div class="d-flex flex-column gap-3">
+                    <div style="border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 16px; background-color: @(selectedDataChoice == "demo" ? "#F0FDF4" : "#FFFFFF"); border-color: @(selectedDataChoice == "demo" ? "var(--primary-green)" : "var(--border-color)"); cursor: pointer;"
+                         @onclick='() => selectedDataChoice = "demo"'>
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <div style="font-weight: 600; font-size: 14px; margin-bottom: 2px;">
+                                    Load Sample Demonstration Data (Recommended)
+                                </div>
+                                <div style="font-size: 12px; color: var(--text-secondary);">
+                                    Instant pre-packaged realistic 30-day hourly consumption data with diurnal cycles and anomalies.
+                                </div>
+                            </div>
+                            <input type="radio" name="dataChoice" checked="@(selectedDataChoice == "demo")" />
+                        </div>
+                    </div>
+
+                    <div style="border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 16px; background-color: @(selectedDataChoice == "import" ? "#F0FDF4" : "#FFFFFF"); border-color: @(selectedDataChoice == "import" ? "var(--primary-green)" : "var(--border-color)"); cursor: pointer;"
+                         @onclick='() => selectedDataChoice = "import"'>
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <div style="font-weight: 600; font-size: 14px; margin-bottom: 2px;">
+                                    Import My Own CSV File
+                                </div>
+                                <div style="font-size: 12px; color: var(--text-secondary);">
+                                    You will be guided to the Import Data page right after setup to map columns and validate records.
+                                </div>
+                            </div>
+                            <input type="radio" name="dataChoice" checked="@(selectedDataChoice == "import")" />
+                        </div>
+                    </div>
+
+                    <div style="border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 16px; background-color: @(selectedDataChoice == "empty" ? "#F0FDF4" : "#FFFFFF"); border-color: @(selectedDataChoice == "empty" ? "var(--primary-green)" : "var(--border-color)"); cursor: pointer;"
+                         @onclick='() => selectedDataChoice = "empty"'>
+                        <div class="d-flex align-items-center justify-content-between">
+                            <div>
+                                <div style="font-weight: 600; font-size: 14px; margin-bottom: 2px;">
+                                    Start with an Empty Dashboard
+                                </div>
+                                <div style="font-size: 12px; color: var(--text-secondary);">
+                                    No data loaded. You can manually enter or import datasets later.
+                                </div>
+                            </div>
+                            <input type="radio" name="dataChoice" checked="@(selectedDataChoice == "empty")" />
+                        </div>
+                    </div>
+                </div>
+            }
+            else if (currentStep == 4)
+            {
+                <!-- Step 4: Appliance Setup -->
+                <h3 style="font-size: 16px; font-weight: 700; margin-bottom: 8px;">Household Appliance Inventory</h3>
+                <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 16px;">
+                    Select the key appliances present in your home to bootstrap your consumption breakdown. You can edit wattage and hours anytime.
+                </p>
+
+                <div class="d-flex flex-column gap-2" style="max-height: 280px; overflow-y: auto; padding-right: 4px;">
+                    @foreach (var item in defaultApplianceCandidates)
+                    {
+                        <div class="d-flex align-items-center justify-content-between p-2 border rounded" style="background: #FAFAFC;">
+                            <div>
+                                <div style="font-size: 13px; font-weight: 600;">@item.Appliance.Name</div>
+                                <div style="font-size: 11px; color: var(--text-secondary);">
+                                    @item.Appliance.RatedWatts W · @item.Appliance.HoursPerDay h/day · @item.Appliance.DisplayCategory
+                                    @if (item.Appliance.IsEssential)
+                                    {
+                                        <span class="badge bg-danger ms-1" style="font-size: 9px;">Essential</span>
+                                    }
+                                </div>
+                            </div>
+                            <input type="checkbox" class="form-check-input" @bind="item.IsSelected" style="width: 18px; height: 18px;" />
+                        </div>
+                    }
+                </div>
+            }
+            else if (currentStep == 5)
+            {
+                <!-- Step 5: Ready to Launch -->
+                <div class="text-center py-4">
+                    <div style="width: 60px; height: 60px; background-color: #E8F5E9; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px auto; color: var(--primary-green);">
+                        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                            <polyline points="20 6 9 17 4 12"></polyline>
+                        </svg>
+                    </div>
+                    <h3 style="font-size: 20px; font-weight: 700; margin-bottom: 8px;">Setup Complete!</h3>
+                    <p style="font-size: 14px; color: var(--text-secondary); max-width: 440px; margin: 0 auto 20px auto;">
+                        Your household profile <strong>@profile.Name</strong> is ready. Your analytics, bill estimates, and carbon footprint will now be calculated locally in your browser.
+                    </p>
+                    <div style="background-color: #F8FAFC; border: 1px solid var(--border-color); border-radius: var(--radius-sm); padding: 12px; font-size: 12px; color: #475569; text-align: left; max-width: 460px; margin: 0 auto;">
+                        🔒 <strong>Privacy Assurance:</strong> All your energy records and household configs remain exclusively in your browser's IndexedDB storage. No meter data is ever sent to external servers.
+                    </div>
+                </div>
+            }
+        </div>
+
+        <!-- Footer Buttons -->
+        <div class="modal-footer-custom">
+            @if (currentStep > 1 && currentStep < 5)
+            {
+                <button type="button" class="btn-pulse-outline" @onclick="PrevStep">Back</button>
+            }
+
+            @if (currentStep == 2)
+            {
+                <button type="button" class="btn btn-link text-muted me-auto" @onclick="NextStep">Skip Tariff for Now</button>
+            }
+            else if (currentStep == 4)
+            {
+                <button type="button" class="btn btn-link text-muted me-auto" @onclick="NextStep">Skip Appliance Setup</button>
+            }
+
+            @if (currentStep < 5)
+            {
+                <button type="button" class="btn-pulse" @onclick="NextStep">Continue</button>
+            }
+            else
+            {
+                <button type="button" class="btn-pulse" @onclick="CompleteOnboardingAsync" disabled="@isSubmitting">
+                    @(isSubmitting ? "Launching..." : "Open Dashboard")
+                </button>
+            }
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnCompleted { get; set; }
+
+    private int currentStep = 1;
+    private bool isSubmitting = false;
+    private string selectedDataChoice = "demo";
+
+    private HouseholdProfile profile = new();
+    private TariffPlan tariff = TariffPlan.CreateDefault();
+
+    private class ApplianceCandidate
+    {
+        public Appliance Appliance { get; set; } = new();
+        public bool IsSelected { get; set; } = true;
+    }
+
+    private List<ApplianceCandidate> defaultApplianceCandidates = new()
+    {
+        new() { Appliance = new Appliance { Name = "Refrigerator (Frost-Free)", Category = ApplianceCategory.Refrigerator, RatedWatts = 150, HoursPerDay = 24, DutyCycle = 0.35, IsEssential = true }, IsSelected = true },
+        new() { Appliance = new Appliance { Name = "Inverter Air Conditioner", Category = ApplianceCategory.AirConditioner, RatedWatts = 1200, HoursPerDay = 6, DutyCycle = 0.65, UsageDaysPerWeek = 7 }, IsSelected = true },
+        new() { Appliance = new Appliance { Name = "Living Room LED TV (55\")", Category = ApplianceCategory.Television, RatedWatts = 90, HoursPerDay = 4, StandbyWatts = 2, StandbyHoursPerDay = 20 }, IsSelected = true },
+        new() { Appliance = new Appliance { Name = "Ceiling Fans (Qty 3)", Category = ApplianceCategory.Fan, RatedWatts = 60, Quantity = 3, HoursPerDay = 8 }, IsSelected = true },
+        new() { Appliance = new Appliance { Name = "LED Home Lighting (10 bulbs)", Category = ApplianceCategory.Lighting, RatedWatts = 9, Quantity = 10, HoursPerDay = 5 }, IsSelected = true },
+        new() { Appliance = new Appliance { Name = "Front Load Washing Machine", Category = ApplianceCategory.WashingMachine, RatedWatts = 500, HoursPerDay = 1.5, UsageDaysPerWeek = 3 }, IsSelected = true },
+        new() { Appliance = new Appliance { Name = "Work Laptop & Monitor", Category = ApplianceCategory.Laptop, RatedWatts = 85, HoursPerDay = 8, StandbyWatts = 1.5, StandbyHoursPerDay = 16 }, IsSelected = true }
+    };
+
+    protected override async Task OnInitializedAsync()
+    {
+        profile = await StorageService.GetProfileAsync();
+        tariff = await StorageService.GetTariffAsync();
+    }
+
+    private void NextStep()
+    {
+        if (currentStep < 5) currentStep++;
+    }
+
+    private void PrevStep()
+    {
+        if (currentStep > 1) currentStep--;
+    }
+
+    private async Task CompleteOnboardingAsync()
+    {
+        isSubmitting = true;
+
+        try
+        {
+            tariff.Currency = profile.Currency;
+            profile.IsOnboarded = true;
+            profile.UpdatedAt = DateTime.UtcNow;
+
+            await StorageService.SaveProfileAsync(profile);
+            await StorageService.SaveTariffAsync(tariff);
+
+            // Save selected appliances
+            foreach (var cand in defaultApplianceCandidates.Where(c => c.IsSelected))
+            {
+                await StorageService.SaveApplianceAsync(cand.Appliance);
+            }
+
+            // If user chose demo data, load sample_hourly.csv
+            if (selectedDataChoice == "demo")
+            {
+                await LoadSampleDatasetAsync();
+            }
+
+            await OnCompleted.InvokeAsync();
+        }
+        finally
+        {
+            isSubmitting = false;
+        }
+    }
+
+    private async Task LoadSampleDatasetAsync()
+    {
+        try
+        {
+            var csvContent = await Http.GetStringAsync("data/sample_hourly.csv");
+            using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(csvContent));
+            var importService = new CsvImportService();
+            string datasetId = Guid.NewGuid().ToString();
+
+            var mapping = new CsvColumnMapping
+            {
+                TimestampColumn = "timestamp",
+                ConsumptionColumn = "consumption_kwh",
+                DefaultUnit = EnergyUnit.KWh,
+                DetectedType = ReadingType.Interval
+            };
+
+            var valResult = await importService.ProcessAndValidateAsync(stream, mapping, datasetId, ',');
+            if (valResult.IsValid)
+            {
+                var dataset = new EnergyDataset
+                {
+                    Id = datasetId,
+                    Name = "Demo 30-Day Household Data",
+                    OriginalFileName = "sample_hourly.csv",
+                    ImportDate = DateTime.UtcNow,
+                    RecordCount = valResult.ValidRecordsCount,
+                    StartDate = valResult.StartDate ?? DateTimeOffset.UtcNow.AddDays(-30),
+                    EndDate = valResult.EndDate ?? DateTimeOffset.UtcNow,
+                    Status = ImportStatus.Success,
+                    IsSampleData = true
+                };
+
+                await StorageService.SaveDatasetAsync(dataset);
+                await StorageService.SaveReadingsBatchAsync(valResult.NormalizedReadings);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading demo data: {ex.Message}");
+        }
+    }
+}

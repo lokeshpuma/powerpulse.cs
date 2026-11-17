@@ -1,0 +1,579 @@
+@page "/"
+@page "/overview"
+@inject IStorageService StorageService
+@inject IJSRuntime JS
+@inject NavigationManager NavManager
+
+<PageTitle>PowerPulse — Dashboard Overview</PageTitle>
+
+<!-- 4.1 Header -->
+<div class="dashboard-header">
+    <div>
+        <h1 class="header-greeting">@greeting, @(profile?.Name ?? "Home")</h1>
+        <div class="header-subtitle">
+            <span>@DateTime.Now.ToString("dddd, MMMM dd, yyyy")</span>
+            <span>•</span>
+            <span class="data-source-badge">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <circle cx="12" cy="12" r="10"></circle>
+                    <polyline points="12 6 12 12 16 14"></polyline>
+                </svg>
+                @(activeDataset != null ? (activeDataset.IsSampleData ? "Demo Data: " + activeDataset.Name : activeDataset.Name) : "No Dataset Loaded")
+            </span>
+        </div>
+    </div>
+
+    <!-- Date Range Selector and Settings Shortcut -->
+    <div class="header-actions">
+        <div class="date-selector-group" role="group" aria-label="Date Range Filter">
+            <button class="date-selector-btn @(currentFilterOption == DateRangeOption.Last7Days ? "active" : "")"
+                    @onclick="() => ChangeDateFilter(DateRangeOption.Last7Days)">7D</button>
+            <button class="date-selector-btn @(currentFilterOption == DateRangeOption.Last30Days ? "active" : "")"
+                    @onclick="() => ChangeDateFilter(DateRangeOption.Last30Days)">30D</button>
+            <button class="date-selector-btn @(currentFilterOption == DateRangeOption.CurrentMonth ? "active" : "")"
+                    @onclick="() => ChangeDateFilter(DateRangeOption.CurrentMonth)">This Month</button>
+            <button class="date-selector-btn @(currentFilterOption == DateRangeOption.PreviousMonth ? "active" : "")"
+                    @onclick="() => ChangeDateFilter(DateRangeOption.PreviousMonth)">Last Month</button>
+            <button class="date-selector-btn @(currentFilterOption == DateRangeOption.CurrentBillingCycle ? "active" : "")"
+                    @onclick="() => ChangeDateFilter(DateRangeOption.CurrentBillingCycle)">Billing Cycle</button>
+        </div>
+
+        <button class="btn-pulse-outline" @onclick='() => NavManager.NavigateTo("settings")' title="Household Settings">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <circle cx="12" cy="12" r="3"></circle>
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+            </svg>
+            <span>Settings</span>
+        </button>
+    </div>
+</div>
+
+@if (allReadings.Count == 0)
+{
+    <!-- Empty State with Quick Import / Demo Load Action -->
+    <div class="pulse-card empty-state">
+        <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"></polyline>
+        </svg>
+        <h2 class="empty-state-title">No Electricity Records Found</h2>
+        <p class="empty-state-desc">
+            To view analytics, bill projections, and anomaly detection, import your electricity meter CSV file or load our sample demonstration data.
+        </p>
+        <div class="d-flex justify-content-center gap-3">
+            <button class="btn-pulse" @onclick='() => NavManager.NavigateTo("import")'>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                    <polyline points="17 8 12 3 7 8"></polyline>
+                    <line x1="12" y1="3" x2="12" y2="15"></line>
+                </svg>
+                Import CSV File
+            </button>
+            <button class="btn-pulse-outline" @onclick="LoadSampleDataQuickAsync">
+                Load Demo Dataset
+            </button>
+        </div>
+    </div>
+}
+else
+{
+    <!-- 4.2 KPI Cards -->
+    <div class="kpi-grid">
+        <!-- Card 1: Total Energy Consumption -->
+        <div class="kpi-card">
+            <div>
+                <div class="kpi-title">
+                    <span>Total Energy</span>
+                    <span class="badge-tag">Actual Measured</span>
+                </div>
+                <div class="kpi-value-container">
+                    <span class="kpi-value">@comparison.CurrentTotalKwh.ToString("N1")</span>
+                    <span class="kpi-unit">kWh</span>
+                </div>
+            </div>
+            <div>
+                @if (comparison.PercentageChange.HasValue)
+                {
+                    var isLower = comparison.PercentageChange.Value <= 0;
+                    <div class="kpi-badge @(isLower ? "badge-positive" : "badge-negative")">
+                        <span>@(isLower ? "↓" : "↑") @Math.Abs(comparison.PercentageChange.Value).ToString("N1")%</span>
+                        <span style="font-size: 11px; font-weight: normal;">vs prev period</span>
+                    </div>
+                }
+                else
+                {
+                    <div class="kpi-badge badge-neutral">No baseline comparison</div>
+                }
+            </div>
+        </div>
+
+        <!-- Card 2: Estimated Electricity Bill -->
+        <div class="kpi-card">
+            <div>
+                <div class="kpi-title">
+                    <span>Estimated Bill</span>
+                    <span class="badge-tag">Estimated</span>
+                </div>
+                <div class="kpi-value-container">
+                    @if (billEstimate != null)
+                    {
+                        <span class="kpi-value">@(tariff?.Currency)@billEstimate.TotalEstimatedBill.ToString("N2")</span>
+                    }
+                    else
+                    {
+                        <span class="kpi-value">—</span>
+                    }
+                </div>
+            </div>
+            <div>
+                @if (billEstimate != null && comparison.CostDifference.HasValue)
+                {
+                    var isLower = comparison.CostDifference.Value <= 0;
+                    <div class="kpi-badge @(isLower ? "badge-positive" : "badge-negative")">
+                        <span>@(isLower ? "↓" : "↑") @(tariff?.Currency)@Math.Abs(comparison.CostDifference.Value).ToString("N2")</span>
+                        <span style="font-size: 11px; font-weight: normal;">vs prev</span>
+                    </div>
+                }
+                else
+                {
+                    <span style="font-size: 11px; color: var(--text-secondary);">Tariff: @(tariff?.Type.ToString() ?? "Flat")</span>
+                }
+            </div>
+        </div>
+
+        <!-- Card 3: Energy Usage Change -->
+        <div class="kpi-card">
+            <div>
+                <div class="kpi-title">
+                    <span>Period Trend</span>
+                    <span class="badge-tag">Calculated</span>
+                </div>
+                <div class="kpi-value-container">
+                    <span class="kpi-value">@(comparison.AbsoluteDifferenceKwh >= 0 ? "+" : "")@comparison.AbsoluteDifferenceKwh.ToString("N1")</span>
+                    <span class="kpi-unit">kWh</span>
+                </div>
+            </div>
+            <div>
+                <span style="font-size: 12px; color: var(--text-secondary);">
+                    Daily Avg: <strong>@comparison.CurrentDailyAverageKwh.ToString("N1")</strong> kWh/d
+                </span>
+            </div>
+        </div>
+
+        <!-- Card 4: Carbon Impact -->
+        <div class="kpi-card">
+            <div>
+                <div class="kpi-title">
+                    <span>Carbon Impact</span>
+                    <span class="badge-tag">Estimated CO2e</span>
+                </div>
+                <div class="kpi-value-container">
+                    @if (comparison.CurrentCarbonKg.HasValue)
+                    {
+                        <span class="kpi-value">@comparison.CurrentCarbonKg.Value.ToString("N1")</span>
+                        <span class="kpi-unit">kg CO2e</span>
+                    }
+                    else
+                    {
+                        <span class="kpi-value">—</span>
+                        <span class="kpi-unit">Factor unset</span>
+                    }
+                </div>
+            </div>
+            <div>
+                @if (carbonFactor != null && carbonFactor.IsConfigured)
+                {
+                    <span style="font-size: 11px; color: var(--text-secondary);">
+                        Factor: @carbonFactor.KgCo2ePerKwh.ToString("N3") kg/kWh
+                    </span>
+                }
+                else
+                {
+                    <a href="settings" style="font-size: 11px; color: var(--primary-green);">Set emission factor</a>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- 4.3 Energy Consumption Chart & 4.4 Spend Analyzer -->
+    <div class="chart-analyzer-grid">
+        <!-- Main Line Chart -->
+        <div class="pulse-card">
+            <div class="card-header-flex">
+                <div>
+                    <h2 class="card-title-lg">Energy Consumption Profile</h2>
+                    <div class="card-subtitle-sm">Electricity usage over time (kWh)</div>
+                </div>
+                <div class="date-selector-group">
+                    <button class="date-selector-btn @(chartGranularity == "hourly" ? "active" : "")"
+                            @onclick='() => ChangeGranularity("hourly")'>Hourly</button>
+                    <button class="date-selector-btn @(chartGranularity == "daily" ? "active" : "")"
+                            @onclick='() => ChangeGranularity("daily")'>Daily</button>
+                </div>
+            </div>
+            <div class="chart-container-large">
+                <canvas id="overviewConsumptionChart"></canvas>
+            </div>
+        </div>
+
+        <!-- Spend Analyzer (Doughnut Chart + Breakdown) -->
+        <div class="pulse-card">
+            <div class="card-header-flex">
+                <div>
+                    <h2 class="card-title-lg">Spend Analyzer</h2>
+                    <div class="card-subtitle-sm">Estimated cost distribution</div>
+                </div>
+            </div>
+            <div class="doughnut-container">
+                <canvas id="overviewSpendChart"></canvas>
+            </div>
+            <div class="spend-list">
+                @if (billEstimate != null)
+                {
+                    <div class="spend-item">
+                        <div class="spend-item-label">
+                            <span class="spend-indicator" style="background-color: #1DA058;"></span>
+                            <span>Energy Charges</span>
+                        </div>
+                        <div class="spend-item-val">@(tariff?.Currency)@billEstimate.EnergyCharges.ToString("N2")</div>
+                    </div>
+                    <div class="spend-item">
+                        <div class="spend-item-label">
+                            <span class="spend-indicator" style="background-color: #5A7E9B;"></span>
+                            <span>Fixed Charges</span>
+                        </div>
+                        <div class="spend-item-val">@(tariff?.Currency)@billEstimate.FixedCharges.ToString("N2")</div>
+                    </div>
+                    <div class="spend-item">
+                        <div class="spend-item-label">
+                            <span class="spend-indicator" style="background-color: #F59E0B;"></span>
+                            <span>Taxes & Fees (@billEstimate.TaxPercentage.ToString("N1")%)</span>
+                        </div>
+                        <div class="spend-item-val">@(tariff?.Currency)@billEstimate.TaxAmount.ToString("N2")</div>
+                    </div>
+                }
+            </div>
+        </div>
+    </div>
+
+    <!-- Secondary Dashboard Row: Appliances Overview & Smart Choices -->
+    <div class="dashboard-bottom-grid">
+        <!-- 4.5 Appliance Overview -->
+        <div class="pulse-card">
+            <div class="card-header-flex">
+                <div>
+                    <h2 class="card-title-lg">Tracked Household Appliances</h2>
+                    <div class="card-subtitle-sm">Calculated operational load estimates</div>
+                </div>
+                <NavLink href="appliances" class="btn-pulse-outline" style="font-size: 12px; padding: 4px 10px;">
+                    Manage All (@appliances.Count)
+                </NavLink>
+            </div>
+
+            @if (appliances.Count == 0)
+            {
+                <div class="empty-state py-4">
+                    <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 12px;">No appliances tracked yet.</p>
+                    <NavLink href="appliances" class="btn-pulse" style="font-size: 12px;">Add Your First Appliance</NavLink>
+                </div>
+            }
+            else
+            {
+                <div class="appliance-mini-grid">
+                    @foreach (var app in appliances.Take(6))
+                    {
+                        var appKwh = ApplianceCalculator.CalculatePeriodKwh(app, currentPeriodDays);
+                        var appCost = ApplianceCalculator.EstimateAppliancePeriodCost(app, currentPeriodDays, tariff?.FlatRatePerKwh ?? 0.15m);
+                        <div class="appliance-card">
+                            <div class="appliance-header">
+                                <div>
+                                    <div class="appliance-name">@app.Name</div>
+                                    <div class="appliance-cat">@app.DisplayCategory</div>
+                                </div>
+                                <div class="form-check form-switch" title="Toggle inclusion in calculations (does not physically control device)">
+                                    <input class="form-check-input" type="checkbox" checked="@app.IncludeInCalculation"
+                                           @onchange="(e) => ToggleApplianceCalculation(app, e.Value)" />
+                                </div>
+                            </div>
+                            <div class="appliance-metrics">
+                                <span class="appliance-power">@app.RatedWatts W · @app.HoursPerDay h/d</span>
+                                <span class="appliance-cost">@(tariff?.Currency)@appCost.ToString("N2")</span>
+                            </div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- 4.7 Smart Choices Panel -->
+        <div class="pulse-card">
+            <div class="card-header-flex">
+                <div>
+                    <h2 class="card-title-lg">Smart Choices</h2>
+                    <div class="card-subtitle-sm">Data-driven actionable insights</div>
+                </div>
+                <NavLink href="insights" class="btn-pulse-outline" style="font-size: 12px; padding: 4px 10px;">
+                    View All
+                </NavLink>
+            </div>
+
+            @if (smartRecommendations.Count == 0)
+            {
+                <div class="p-3 text-center text-muted" style="font-size: 13px;">
+                    ✓ Normal usage patterns observed. No immediate energy warnings.
+                </div>
+            }
+            else
+            {
+                <div class="recommendation-list">
+                    @foreach (var rec in smartRecommendations.Take(3))
+                    {
+                        <div class="recommendation-card @(rec.Priority == 1 ? "rec-priority-1" : rec.Priority == 2 ? "rec-priority-2" : "")">
+                            <div class="rec-title">
+                                <span>@rec.Title</span>
+                                <span class="badge-tag" style="background:#FFFFFF;">Priority @rec.Priority</span>
+                            </div>
+                            <div class="rec-desc">@rec.Description</div>
+                            <div class="rec-evidence">@rec.Evidence</div>
+                            <div class="rec-suggestion">💡 @rec.PracticalSuggestion</div>
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private HouseholdProfile? profile;
+    private TariffPlan? tariff;
+    private CarbonFactor? carbonFactor;
+    private List<Appliance> appliances = new();
+    private List<EnergyDataset> datasets = new();
+    private EnergyDataset? activeDataset;
+    private List<EnergyReading> allReadings = new();
+    private List<EnergyReading> filteredReadings = new();
+    private List<EnergyReading> prevFilteredReadings = new();
+
+    private DateRangeOption currentFilterOption = DateRangeOption.Last30Days;
+    private DateRangeFilter dateRangeFilter = new();
+    private PeriodComparisonResult comparison = new();
+    private BillEstimate? billEstimate;
+    private List<Recommendation> smartRecommendations = new();
+
+    private string chartGranularity = "daily";
+    private int currentPeriodDays = 30;
+    private string greeting = "Good morning";
+
+    protected override async Task OnInitializedAsync()
+    {
+        SetGreeting();
+        await LoadDataAsync();
+    }
+
+    private void SetGreeting()
+    {
+        var hour = DateTime.Now.Hour;
+        if (hour < 12) greeting = "Good morning";
+        else if (hour < 17) greeting = "Good afternoon";
+        else greeting = "Good evening";
+    }
+
+    private async Task LoadDataAsync()
+    {
+        profile = await StorageService.GetProfileAsync();
+        tariff = await StorageService.GetTariffAsync();
+        carbonFactor = await StorageService.GetCarbonFactorAsync();
+        appliances = await StorageService.GetAppliancesAsync();
+        datasets = await StorageService.GetDatasetsAsync();
+        allReadings = await StorageService.GetAllReadingsAsync();
+
+        if (datasets.Count > 0)
+        {
+            activeDataset = datasets.OrderByDescending(d => d.ImportDate).FirstOrDefault();
+        }
+
+        ApplyDateFilter();
+    }
+
+    private void ApplyDateFilter()
+    {
+        if (allReadings.Count == 0)
+            return;
+
+        DateTimeOffset maxDate = allReadings.Max(r => r.Timestamp);
+        int cycleDay = profile?.BillingCycleStartDay ?? 1;
+
+        dateRangeFilter = EnergyAnalyticsEngine.ResolveDateRange(currentFilterOption, maxDate, cycleDay);
+        currentPeriodDays = Math.Max(1, (int)(dateRangeFilter.EndDate - dateRangeFilter.StartDate).TotalDays);
+
+        filteredReadings = allReadings
+            .Where(r => r.Timestamp >= dateRangeFilter.StartDate && r.Timestamp <= dateRangeFilter.EndDate)
+            .OrderBy(r => r.Timestamp)
+            .ToList();
+
+        prevFilteredReadings = allReadings
+            .Where(r => r.Timestamp >= dateRangeFilter.ComparisonStartDate && r.Timestamp < dateRangeFilter.ComparisonEndDate)
+            .OrderBy(r => r.Timestamp)
+            .ToList();
+
+        comparison = EnergyAnalyticsEngine.ComparePeriods(filteredReadings, prevFilteredReadings, tariff, carbonFactor);
+
+        if (tariff != null)
+        {
+            billEstimate = TariffCalculator.CalculateBill(
+                tariff,
+                comparison.CurrentTotalKwh,
+                filteredReadings,
+                null,
+                dateRangeFilter.StartDate,
+                dateRangeFilter.EndDate);
+        }
+
+        // Generate recommendations
+        smartRecommendations = RecommendationEngine.GenerateRecommendations(
+            filteredReadings,
+            appliances,
+            tariff ?? TariffPlan.CreateDefault(),
+            dateRangeFilter);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (filteredReadings.Count > 0)
+        {
+            await RenderChartsAsync();
+        }
+    }
+
+    private async Task ChangeDateFilter(DateRangeOption option)
+    {
+        currentFilterOption = option;
+        ApplyDateFilter();
+        await RenderChartsAsync();
+    }
+
+    private async Task ChangeGranularity(string granularity)
+    {
+        chartGranularity = granularity;
+        await RenderChartsAsync();
+    }
+
+    private async Task ToggleApplianceCalculation(Appliance app, object? checkedVal)
+    {
+        if (checkedVal is bool val)
+        {
+            app.IncludeInCalculation = val;
+            await StorageService.SaveApplianceAsync(app);
+            ApplyDateFilter();
+            await RenderChartsAsync();
+        }
+    }
+
+    private async Task RenderChartsAsync()
+    {
+        try
+        {
+            // 1. Line Chart
+            var labels = new List<string>();
+            var currentPoints = new List<double>();
+            var previousPoints = new List<double>();
+
+            if (chartGranularity == "hourly" && filteredReadings.Any(r => r.Timestamp.Hour != 0))
+            {
+                var hourlyCur = EnergyAnalyticsEngine.CalculateHourlyProfile(filteredReadings);
+                var hourlyPrev = EnergyAnalyticsEngine.CalculateHourlyProfile(prevFilteredReadings);
+
+                for (int h = 0; h < 24; h++)
+                {
+                    labels.Add($"{h:D2}:00");
+                    currentPoints.Add(hourlyCur[h].AverageKwh);
+                    previousPoints.Add(hourlyPrev[h].AverageKwh);
+                }
+            }
+            else
+            {
+                var dailyCur = EnergyAnalyticsEngine.AggregateDaily(filteredReadings);
+                var dailyPrev = EnergyAnalyticsEngine.AggregateDaily(prevFilteredReadings);
+
+                foreach (var d in dailyCur)
+                {
+                    labels.Add(d.Date.ToString("MMM dd"));
+                    currentPoints.Add(d.TotalKwh);
+                }
+
+                foreach (var p in dailyPrev.Take(currentPoints.Count))
+                {
+                    previousPoints.Add(p.TotalKwh);
+                }
+            }
+
+            await JS.InvokeVoidAsync("powerPulseCharts.renderLineChart",
+                "overviewConsumptionChart", labels, currentPoints, previousPoints, "kWh", "Consumption");
+
+            // 2. Spend Doughnut Chart
+            if (billEstimate != null)
+            {
+                var spendLabels = new List<string> { "Energy Charges", "Fixed Charges", "Taxes & Fees" };
+                var spendData = new List<double>
+                {
+                    (double)billEstimate.EnergyCharges,
+                    (double)billEstimate.FixedCharges,
+                    (double)billEstimate.TaxAmount
+                };
+                var spendColors = new List<string> { "#1DA058", "#5A7E9B", "#F59E0B" };
+
+                string centerTotal = $"{tariff?.Currency}{billEstimate.TotalEstimatedBill:N2}";
+                await JS.InvokeVoidAsync("powerPulseCharts.renderDoughnutChart",
+                    "overviewSpendChart", spendLabels, spendData, spendColors, centerTotal, "Est. Spend");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error rendering charts: {ex.Message}");
+        }
+    }
+
+    private async Task LoadSampleDataQuickAsync()
+    {
+        try
+        {
+            var csvContent = await new HttpClient { BaseAddress = new Uri(NavManager.BaseUri) }.GetStringAsync("data/sample_hourly.csv");
+            using var stream = new MemoryStream(System.Text.Encoding.UTF8.GetBytes(csvContent));
+            var importService = new CsvImportService();
+            string datasetId = Guid.NewGuid().ToString();
+
+            var mapping = new CsvColumnMapping
+            {
+                TimestampColumn = "timestamp",
+                ConsumptionColumn = "consumption_kwh",
+                DefaultUnit = EnergyUnit.KWh,
+                DetectedType = ReadingType.Interval
+            };
+
+            var valResult = await importService.ProcessAndValidateAsync(stream, mapping, datasetId, ',');
+            if (valResult.IsValid)
+            {
+                var dataset = new EnergyDataset
+                {
+                    Id = datasetId,
+                    Name = "Demo 30-Day Household Data",
+                    OriginalFileName = "sample_hourly.csv",
+                    ImportDate = DateTime.UtcNow,
+                    RecordCount = valResult.ValidRecordsCount,
+                    StartDate = valResult.StartDate ?? DateTimeOffset.UtcNow.AddDays(-30),
+                    EndDate = valResult.EndDate ?? DateTimeOffset.UtcNow,
+                    Status = ImportStatus.Success,
+                    IsSampleData = true
+                };
+
+                await StorageService.SaveDatasetAsync(dataset);
+                await StorageService.SaveReadingsBatchAsync(valResult.NormalizedReadings);
+                await LoadDataAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error loading sample data: {ex.Message}");
+        }
+    }
+}

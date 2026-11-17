@@ -1,0 +1,279 @@
+@page "/reports"
+@inject IStorageService StorageService
+@inject IJSRuntime JS
+
+<PageTitle>PowerPulse — Reports & Data Export</PageTitle>
+
+<div class="dashboard-header">
+    <div>
+        <h1 class="header-greeting">Reports & Data Export</h1>
+        <div class="header-subtitle">Export official analytical reports to CSV, download JSON system backups, or print audit summaries</div>
+    </div>
+    <div class="header-actions">
+        <button class="btn-pulse" @onclick="ExportCsvReportAsync" disabled="@(allReadings.Count == 0)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                <polyline points="7 10 12 15 17 10"></polyline>
+                <line x1="12" y1="15" x2="12" y2="3"></line>
+            </svg>
+            Export CSV Report
+        </button>
+        <button class="btn-pulse-outline" @onclick="PrintHtmlReportAsync" disabled="@(allReadings.Count == 0)">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="6 9 6 2 18 2 18 9"></polyline>
+                <path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path>
+                <rect x="6" y="14" width="12" height="8"></rect>
+            </svg>
+            Print / PDF Report
+        </button>
+        <button class="btn-pulse-outline" @onclick="ExportJsonBackupAsync">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+                <polyline points="17 21 17 13 7 13 7 21"></polyline>
+                <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
+            JSON Backup
+        </button>
+    </div>
+</div>
+
+@if (allReadings.Count == 0)
+{
+    <div class="pulse-card empty-state">
+        <h2 class="empty-state-title">No Data to Export</h2>
+        <p class="empty-state-desc">Import energy readings first to generate consolidated reports.</p>
+        <NavLink href="import" class="btn-pulse">Go to Import</NavLink>
+    </div>
+}
+else
+{
+    <!-- Report Scope Filter -->
+    <div class="pulse-card mb-4">
+        <div class="card-header-flex">
+            <div>
+                <h2 class="card-title-lg">Report Scope & Timeframe</h2>
+                <div class="card-subtitle-sm">
+                    Selected: <strong>@dateRange.StartDate.ToString("MMM dd, yyyy")</strong> to <strong>@dateRange.EndDate.ToString("MMM dd, yyyy")</strong>
+                </div>
+            </div>
+            <div class="date-selector-group">
+                <button class="date-selector-btn @(selectedOption == DateRangeOption.Last7Days ? "active" : "")"
+                        @onclick="() => SetDateRange(DateRangeOption.Last7Days)">Last 7 Days</button>
+                <button class="date-selector-btn @(selectedOption == DateRangeOption.Last30Days ? "active" : "")"
+                        @onclick="() => SetDateRange(DateRangeOption.Last30Days)">Last 30 Days</button>
+                <button class="date-selector-btn @(selectedOption == DateRangeOption.CurrentMonth ? "active" : "")"
+                        @onclick="() => SetDateRange(DateRangeOption.CurrentMonth)">This Month</button>
+                <button class="date-selector-btn @(selectedOption == DateRangeOption.PreviousMonth ? "active" : "")"
+                        @onclick="() => SetDateRange(DateRangeOption.PreviousMonth)">Last Month</button>
+                <button class="date-selector-btn @(selectedOption == DateRangeOption.CurrentBillingCycle ? "active" : "")"
+                        @onclick="() => SetDateRange(DateRangeOption.CurrentBillingCycle)">Billing Cycle</button>
+            </div>
+        </div>
+
+        <div class="row g-3">
+            <div class="col-md-3">
+                <div class="p-3 border rounded text-center" style="background:#F8FAFC;">
+                    <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase;">Energy Consumed</div>
+                    <div style="font-size:22px; font-weight:700;">@comparison.CurrentTotalKwh.ToString("N1") kWh</div>
+                    <div style="font-size:11px; color:var(--text-secondary);">Actual Measured</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 border rounded text-center" style="background:#F8FAFC;">
+                    <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase;">Estimated Cost</div>
+                    <div style="font-size:22px; font-weight:700;">@(tariff?.Currency)@(comparison.CurrentEstimatedCost?.ToString("N2") ?? "0.00")</div>
+                    <div style="font-size:11px; color:var(--text-secondary);">Calculated</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 border rounded text-center" style="background:#F8FAFC;">
+                    <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase;">Daily Average</div>
+                    <div style="font-size:22px; font-weight:700;">@comparison.CurrentDailyAverageKwh.ToString("N1") kWh/d</div>
+                    <div style="font-size:11px; color:var(--text-secondary);">Calculated</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 border rounded text-center" style="background:#F8FAFC;">
+                    <div style="font-size:11px; color:var(--text-secondary); text-transform:uppercase;">Carbon Impact</div>
+                    <div style="font-size:22px; font-weight:700;">@(comparison.CurrentCarbonKg?.ToString("N1") ?? "—") kg</div>
+                    <div style="font-size:11px; color:var(--text-secondary);">Estimated CO2e</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Printable Preview Area -->
+    <div class="pulse-card">
+        <div class="card-header-flex">
+            <div>
+                <h2 class="card-title-lg">Report Contents Preview</h2>
+                <div class="card-subtitle-sm">Includes inventory, anomalies, forecast, and methodology</div>
+            </div>
+        </div>
+
+        <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 8px;">Active Appliance Inventory (@appliances.Count(a => a.IncludeInCalculation))</h3>
+        <div class="table-responsive mb-4">
+            <table class="pulse-table" style="font-size: 12px;">
+                <thead>
+                    <tr>
+                        <th>Appliance Name</th>
+                        <th>Category</th>
+                        <th>Power Rating</th>
+                        <th>Operating Schedule</th>
+                        <th>Est. Period kWh</th>
+                        <th>Est. Cost</th>
+                        <th>Essential</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var a in appliances.Where(a => a.IncludeInCalculation))
+                    {
+                        var appKwh = ApplianceCalculator.CalculatePeriodKwh(a, periodDays);
+                        var appCost = ApplianceCalculator.EstimateAppliancePeriodCost(a, periodDays, tariff?.FlatRatePerKwh ?? 0.15m);
+                        <tr>
+                            <td><strong>@a.Name</strong></td>
+                            <td>@a.DisplayCategory</td>
+                            <td>@a.RatedWatts W (x@a.Quantity)</td>
+                            <td>@a.HoursPerDay h/d (@a.UsageDaysPerWeek d/wk)</td>
+                            <td>@appKwh.ToString("N1") kWh</td>
+                            <td>@(tariff?.Currency)@appCost.ToString("N2")</td>
+                            <td>@(a.IsEssential ? "Yes" : "No")</td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+
+        <h3 style="font-size: 14px; font-weight: 700; margin-bottom: 8px;">Anomalies in Period (@anomalies.Count(a => a.IsAnomaly))</h3>
+        @if (anomalies.Any(a => a.IsAnomaly))
+        {
+            <div class="table-responsive mb-4">
+                <table class="pulse-table" style="font-size: 12px;">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Usage</th>
+                            <th>Median</th>
+                            <th>Difference</th>
+                            <th>Z-Score</th>
+                            <th>Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var an in anomalies.Where(a => a.IsAnomaly))
+                        {
+                            <tr>
+                                <td>@an.Date.ToString("yyyy-MM-dd")</td>
+                                <td>@an.ConsumptionKwh.ToString("N1") kWh</td>
+                                <td>@an.RollingMedianKwh.ToString("N1") kWh</td>
+                                <td>+@an.DifferenceKwh.ToString("N1") kWh</td>
+                                <td>@an.RobustZScore.ToString("N1")</td>
+                                <td>@an.Reason</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+        else
+        {
+            <div class="p-3 text-muted mb-4 border rounded" style="background:#FAFAFC; font-size:12px;">
+                ✓ No statistical anomalies detected during this timeframe.
+            </div>
+        }
+
+        <!-- Limitations & Disclaimer Notice -->
+        <div class="p-3 border rounded" style="background: #FFFBEB; border-color: #FCD34D; font-size: 12px; color: #92400E;">
+            <strong>Methodology Notice:</strong> All electricity charges and appliance consumption amounts are mathematical estimates based on user configuration. Do not present or interpret estimated bills as official utility invoices. Environmental emissions are estimated using regional carbon factors.
+        </div>
+    </div>
+}
+
+@code {
+    private List<EnergyReading> allReadings = new();
+    private List<EnergyReading> filteredReadings = new();
+    private List<EnergyReading> prevFilteredReadings = new();
+    private List<DailyEnergyAggregation> dailyData = new();
+    private List<Appliance> appliances = new();
+    private List<AnomalyResult> anomalies = new();
+    private List<Recommendation> recommendations = new();
+    private ForecastResult? forecast;
+
+    private HouseholdProfile? profile;
+    private TariffPlan? tariff;
+    private CarbonFactor? carbonFactor;
+
+    private DateRangeOption selectedOption = DateRangeOption.Last30Days;
+    private DateRangeFilter dateRange = new();
+    private PeriodComparisonResult comparison = new();
+    private int periodDays = 30;
+
+    protected override async Task OnInitializedAsync()
+    {
+        profile = await StorageService.GetProfileAsync();
+        tariff = await StorageService.GetTariffAsync();
+        carbonFactor = await StorageService.GetCarbonFactorAsync();
+        appliances = await StorageService.GetAppliancesAsync();
+        allReadings = await StorageService.GetAllReadingsAsync();
+
+        ApplyFilter();
+    }
+
+    private void ApplyFilter()
+    {
+        if (allReadings.Count == 0) return;
+
+        DateTimeOffset maxDate = allReadings.Max(r => r.Timestamp);
+        int cycleDay = profile?.BillingCycleStartDay ?? 1;
+
+        dateRange = EnergyAnalyticsEngine.ResolveDateRange(selectedOption, maxDate, cycleDay);
+        periodDays = Math.Max(1, (int)(dateRange.EndDate - dateRange.StartDate).TotalDays);
+
+        filteredReadings = allReadings.Where(r => r.Timestamp >= dateRange.StartDate && r.Timestamp <= dateRange.EndDate).ToList();
+        prevFilteredReadings = allReadings.Where(r => r.Timestamp >= dateRange.ComparisonStartDate && r.Timestamp < dateRange.ComparisonEndDate).ToList();
+
+        dailyData = EnergyAnalyticsEngine.AggregateDaily(filteredReadings);
+        comparison = EnergyAnalyticsEngine.ComparePeriods(filteredReadings, prevFilteredReadings, tariff, carbonFactor);
+        anomalies = AnomalyDetectionEngine.DetectAnomalies(dailyData, 14, 3.5);
+
+        if (tariff != null)
+        {
+            forecast = ForecastingEngine.GenerateForecast(allReadings, tariff, cycleDay);
+        }
+
+        recommendations = RecommendationEngine.GenerateRecommendations(
+            filteredReadings, appliances, tariff ?? TariffPlan.CreateDefault(), dateRange);
+    }
+
+    private void SetDateRange(DateRangeOption option)
+    {
+        selectedOption = option;
+        ApplyFilter();
+    }
+
+    private async Task ExportCsvReportAsync()
+    {
+        var csv = ReportExportService.GenerateCsvReport(
+            dateRange, comparison, dailyData, appliances, anomalies, forecast, recommendations,
+            tariff ?? TariffPlan.CreateDefault(), carbonFactor);
+
+        string filename = $"PowerPulse_Report_{DateTime.UtcNow:yyyyMMdd_HHmm}.csv";
+        await JS.InvokeVoidAsync("powerPulseFiles.downloadFile", filename, csv, "text/csv;charset=utf-8;");
+    }
+
+    private async Task PrintHtmlReportAsync()
+    {
+        var html = ReportExportService.GenerateHtmlReport(
+            profile ?? new HouseholdProfile(), dateRange, comparison, dailyData, appliances,
+            anomalies, forecast, recommendations, tariff ?? TariffPlan.CreateDefault(), carbonFactor);
+
+        await JS.InvokeVoidAsync("powerPulseFiles.openHtmlInNewTabAndPrint", html);
+    }
+
+    private async Task ExportJsonBackupAsync()
+    {
+        string json = await StorageService.ExportBackupJsonAsync();
+        string filename = $"PowerPulse_Backup_{DateTime.UtcNow:yyyyMMdd_HHmm}.json";
+        await JS.InvokeVoidAsync("powerPulseFiles.downloadFile", filename, json, "application/json;charset=utf-8;");
+    }
+}

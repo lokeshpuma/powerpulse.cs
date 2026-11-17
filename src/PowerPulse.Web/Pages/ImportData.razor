@@ -1,0 +1,503 @@
+@page "/import"
+@inject IStorageService StorageService
+@inject ICsvImportService CsvService
+@inject HttpClient Http
+@inject NavigationManager NavManager
+
+<PageTitle>PowerPulse — Import Electricity Data</PageTitle>
+
+<div class="dashboard-header">
+    <div>
+        <h1 class="header-greeting">Import Electricity Data</h1>
+        <div class="header-subtitle">Upload meter records, map columns, preview validation, and manage imported datasets</div>
+    </div>
+</div>
+
+<!-- Upload & Sample Datasets Card -->
+<div class="pulse-card">
+    <div class="card-header-flex">
+        <div>
+            <h2 class="card-title-lg">1. Select CSV File to Import</h2>
+            <div class="card-subtitle-sm">Supports interval consumption, daily aggregates, or cumulative meter registers</div>
+        </div>
+        <div class="d-flex gap-2">
+            <button class="btn btn-sm btn-outline-success" @onclick='() => LoadPresetSampleAsync("data/sample_hourly.csv", "30-Day Hourly Demo")' disabled="@isProcessing">
+                Load Hourly Demo
+            </button>
+            <button class="btn btn-sm btn-outline-success" @onclick='() => LoadPresetSampleAsync("data/sample_daily.csv", "90-Day Daily Demo")' disabled="@isProcessing">
+                Load Daily Demo
+            </button>
+            <button class="btn btn-sm btn-outline-success" @onclick='() => LoadPresetSampleAsync("data/sample_cumulative.csv", "60-Day Cumulative Demo")' disabled="@isProcessing">
+                Load Cumulative Demo
+            </button>
+        </div>
+    </div>
+
+    <!-- File Input Box -->
+    <div style="border: 2px dashed var(--border-color); border-radius: var(--radius-md); padding: 32px; text-align: center; background: #FAFAFC;">
+        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--primary-green)" stroke-width="2" style="margin-bottom: 12px;">
+            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+            <polyline points="17 8 12 3 7 8"></polyline>
+            <line x1="12" y1="3" x2="12" y2="15"></line>
+        </svg>
+        <div style="font-weight: 600; font-size: 15px; margin-bottom: 6px;">Choose a CSV File from your computer</div>
+        <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 16px;">
+            Comma, semicolon or tab delimited. Max file size: 10 MB. Max records: 100,000.
+        </div>
+        <InputFile OnChange="HandleFileSelected" accept=".csv,.txt" class="form-control" style="max-width: 380px; margin: 0 auto;" />
+    </div>
+
+    @if (fileError != null)
+    {
+        <div class="alert alert-danger mt-3" style="font-size: 13px;">
+            @fileError
+        </div>
+    }
+</div>
+
+@if (previewData != null)
+{
+    <!-- Column Mapping & Validation Configuration -->
+    <div class="pulse-card">
+        <div class="card-header-flex">
+            <div>
+                <h2 class="card-title-lg">2. Column Mapping & Parameters</h2>
+                <div class="card-subtitle-sm">
+                    Detected delimiter: <strong>'@previewData.DetectedDelimiter'</strong> |
+                    Estimated rows: <strong>@previewData.TotalEstimatedRows</strong> |
+                    File: <strong>@uploadedFileName</strong>
+                </div>
+            </div>
+            <div>
+                <button class="btn-pulse" @onclick="ValidateAndPreviewAsync" disabled="@isProcessing">
+                    @(isProcessing ? "Validating..." : "Run Validation")
+                </button>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <label class="form-label-custom">Dataset Name</label>
+                <input type="text" class="form-control-custom" @bind="datasetName" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label-custom">Timestamp / Date Column <span class="text-danger">*</span></label>
+                <select class="form-control-custom" @bind="mapping.TimestampColumn">
+                    <option value="">-- Select Column --</option>
+                    @foreach (var h in previewData.Headers)
+                    {
+                        <option value="@h">@h</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label-custom">Separate Time Column (Optional)</label>
+                <select class="form-control-custom" @bind="mapping.TimeColumn">
+                    <option value="">-- None (Date & Time in Timestamp) --</option>
+                    @foreach (var h in previewData.Headers)
+                    {
+                        <option value="@h">@h</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-4">
+                <label class="form-label-custom">Interval Consumption Column</label>
+                <select class="form-control-custom" @bind="mapping.ConsumptionColumn">
+                    <option value="">-- None (Using Cumulative) --</option>
+                    @foreach (var h in previewData.Headers)
+                    {
+                        <option value="@h">@h</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label-custom">Cumulative Meter Reading Column</label>
+                <select class="form-control-custom" @bind="mapping.CumulativeMeterColumn">
+                    <option value="">-- None (Using Interval) --</option>
+                    @foreach (var h in previewData.Headers)
+                    {
+                        <option value="@h">@h</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-4">
+                <label class="form-label-custom">Energy Measurement Unit</label>
+                <select class="form-control-custom" @bind="mapping.DefaultUnit">
+                    <option value="@EnergyUnit.KWh">Kilowatt-hours (kWh) — Normalized 1:1</option>
+                    <option value="@EnergyUnit.Wh">Watt-hours (Wh) — Divides by 1,000</option>
+                    <option value="@EnergyUnit.MWh">Megawatt-hours (MWh) — Multiplies by 1,000</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <label class="form-label-custom">Cost / Amount Column (Optional)</label>
+                <select class="form-control-custom" @bind="mapping.CostColumn">
+                    <option value="">-- None --</option>
+                    @foreach (var h in previewData.Headers)
+                    {
+                        <option value="@h">@h</option>
+                    }
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label-custom">Meter Identifier Column (Optional)</label>
+                <select class="form-control-custom" @bind="mapping.MeterIdColumn">
+                    <option value="">-- None --</option>
+                    @foreach (var h in previewData.Headers)
+                    {
+                        <option value="@h">@h</option>
+                    }
+                </select>
+            </div>
+        </div>
+
+        <!-- 20-Record Raw Preview Table -->
+        <div class="card-header-flex mb-2">
+            <h3 style="font-size: 14px; font-weight: 700; margin: 0;">First 20 Records Raw Preview</h3>
+        </div>
+        <div class="table-responsive" style="max-height: 240px; overflow-y: auto; border: 1px solid var(--border-color); border-radius: var(--radius-sm);">
+            <table class="pulse-table" style="font-size: 12px;">
+                <thead>
+                    <tr>
+                        @foreach (var h in previewData.Headers)
+                        {
+                            <th>@h</th>
+                        }
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var row in previewData.Rows)
+                    {
+                        <tr>
+                            @foreach (var cell in row)
+                            {
+                                <td>@cell</td>
+                            }
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    </div>
+}
+
+@if (validationResult != null)
+{
+    <!-- Validation Summary & Confirm Import -->
+    <div class="pulse-card">
+        <div class="card-header-flex">
+            <div>
+                <h2 class="card-title-lg">3. Validation Summary</h2>
+                <div class="card-subtitle-sm">Verification results before writing to database</div>
+            </div>
+            <div>
+                <button class="btn-pulse" @onclick="CommitImportAsync" disabled="@(!validationResult.IsValid || isProcessing)">
+                    @(isProcessing ? "Saving to IndexedDB..." : "Confirm & Import Dataset")
+                </button>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-3">
+                <div class="p-3 border rounded text-center" style="background: #F8FAFC;">
+                    <div style="font-size: 12px; color: var(--text-secondary); text-transform: uppercase;">Total Parsed</div>
+                    <div style="font-size: 22px; font-weight: 700;">@validationResult.TotalRowsParsed</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 border rounded text-center" style="background: #F0FDF4;">
+                    <div style="font-size: 12px; color: var(--deep-green); text-transform: uppercase;">Valid Records</div>
+                    <div style="font-size: 22px; font-weight: 700; color: var(--primary-green);">@validationResult.ValidRecordsCount</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 border rounded text-center" style="background: #FFFBEB;">
+                    <div style="font-size: 12px; color: #B45309; text-transform: uppercase;">Duplicates Handled</div>
+                    <div style="font-size: 22px; font-weight: 700; color: #D97706;">@validationResult.DuplicateCount</div>
+                </div>
+            </div>
+            <div class="col-md-3">
+                <div class="p-3 border rounded text-center" style="background: #FEF2F2;">
+                    <div style="font-size: 12px; color: var(--warning-red); text-transform: uppercase;">Invalid Skipped</div>
+                    <div style="font-size: 22px; font-weight: 700; color: var(--warning-red);">@validationResult.InvalidCount</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="p-3 mb-3 border rounded" style="background: #F8FAFC; font-size: 13px;">
+            <div>📅 <strong>Date Range:</strong> @validationResult.StartDate?.ToString("yyyy-MM-dd HH:mm") to @validationResult.EndDate?.ToString("yyyy-MM-dd HH:mm")</div>
+            <div>⚡ <strong>Total Energy Normalized:</strong> @validationResult.TotalKwh.ToString("N2") kWh</div>
+            @if (validationResult.HasMeterResets)
+            {
+                <div style="color: #B45309; margin-top: 4px;">⚠️ <strong>Meter Resets:</strong> Detected backward meter reading jumps. Rollovers were normalized without negative consumption.</div>
+            }
+        </div>
+
+        @if (validationResult.Errors.Count > 0)
+        {
+            <div class="alert alert-danger" style="font-size: 13px;">
+                <strong>Errors blocking import:</strong>
+                <ul class="mb-0 mt-1">
+                    @foreach (var err in validationResult.Errors)
+                    {
+                        <li>@err</li>
+                    }
+                </ul>
+            </div>
+        }
+
+        @if (validationResult.Warnings.Count > 0)
+        {
+            <div class="alert alert-warning" style="font-size: 12px; max-height: 160px; overflow-y: auto;">
+                <strong>Validation Warnings (@validationResult.Warnings.Count):</strong>
+                <ul class="mb-0 mt-1">
+                    @foreach (var w in validationResult.Warnings.Take(25))
+                    {
+                        <li>@w</li>
+                    }
+                    @if (validationResult.Warnings.Count > 25)
+                    {
+                        <li><em>...and @(validationResult.Warnings.Count - 25) more warnings.</em></li>
+                    }
+                </ul>
+            </div>
+        }
+    </div>
+}
+
+<!-- 4. Import History Table -->
+<div class="pulse-card">
+    <div class="card-header-flex">
+        <div>
+            <h2 class="card-title-lg">Imported Datasets History</h2>
+            <div class="card-subtitle-sm">Manage stored electricity datasets in your browser</div>
+        </div>
+    </div>
+
+    @if (importedDatasets.Count == 0)
+    {
+        <div class="text-center py-4 text-muted" style="font-size: 13px;">
+            No datasets stored yet.
+        </div>
+    }
+    else
+    {
+        <div class="table-responsive">
+            <table class="pulse-table">
+                <thead>
+                    <tr>
+                        <th>Dataset Name</th>
+                        <th>Original File</th>
+                        <th>Imported At</th>
+                        <th>Records</th>
+                        <th>Date Range</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    @foreach (var d in importedDatasets)
+                    {
+                        <tr>
+                            <td>
+                                <strong>@d.Name</strong>
+                                @if (d.IsSampleData)
+                                {
+                                    <span class="badge bg-secondary ms-1" style="font-size: 10px;">Demo</span>
+                                }
+                            </td>
+                            <td>@d.OriginalFileName</td>
+                            <td>@d.ImportDate.ToString("yyyy-MM-dd HH:mm")</td>
+                            <td>@d.RecordCount.ToString("N0")</td>
+                            <td>@d.StartDate.ToString("yyyy-MM-dd") to @d.EndDate.ToString("yyyy-MM-dd")</td>
+                            <td>
+                                <span class="badge bg-success" style="font-size: 11px;">@d.Status</span>
+                            </td>
+                            <td>
+                                <button class="btn btn-sm btn-outline-danger py-0 px-2" @onclick="() => DeleteDatasetAsync(d.Id)">
+                                    Delete
+                                </button>
+                            </td>
+                        </tr>
+                    }
+                </tbody>
+            </table>
+        </div>
+    }
+</div>
+
+@code {
+    private List<EnergyDataset> importedDatasets = new();
+    private CsvPreviewData? previewData;
+    private CsvColumnMapping mapping = new();
+    private CsvValidationResult? validationResult;
+
+    private string? fileError;
+    private string uploadedFileName = string.Empty;
+    private string datasetName = "My Electricity Data";
+    private byte[]? uploadedFileBytes;
+    private bool isProcessing = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadDatasetsAsync();
+    }
+
+    private async Task LoadDatasetsAsync()
+    {
+        importedDatasets = (await StorageService.GetDatasetsAsync()).OrderByDescending(d => d.ImportDate).ToList();
+    }
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        fileError = null;
+        previewData = null;
+        validationResult = null;
+
+        var file = e.File;
+        if (file == null) return;
+
+        if (file.Size > 10 * 1024 * 1024)
+        {
+            fileError = $"File size ({file.Size / (1024 * 1024)} MB) exceeds 10 MB limit.";
+            return;
+        }
+
+        try
+        {
+            isProcessing = true;
+            uploadedFileName = file.Name;
+            datasetName = Path.GetFileNameWithoutExtension(file.Name);
+
+            using var memoryStream = new MemoryStream();
+            await file.OpenReadStream(10 * 1024 * 1024).CopyToAsync(memoryStream);
+            uploadedFileBytes = memoryStream.ToArray();
+
+            using var previewStream = new MemoryStream(uploadedFileBytes);
+            previewData = await CsvService.DetectDelimiterAndPreviewAsync(previewStream, file.Name, file.Size, 20);
+
+            // Auto-detect column mapping
+            mapping = CsvService.AutoDetectMapping(previewData.Headers);
+        }
+        catch (Exception ex)
+        {
+            fileError = $"Error parsing CSV structure: {ex.Message}";
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task ValidateAndPreviewAsync()
+    {
+        if (uploadedFileBytes == null || previewData == null) return;
+
+        try
+        {
+            isProcessing = true;
+            fileError = null;
+
+            using var stream = new MemoryStream(uploadedFileBytes);
+            validationResult = await CsvService.ProcessAndValidateAsync(
+                stream, mapping, Guid.NewGuid().ToString(), previewData.DetectedDelimiter);
+        }
+        catch (Exception ex)
+        {
+            fileError = $"Validation failed: {ex.Message}";
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task CommitImportAsync()
+    {
+        if (validationResult == null || !validationResult.IsValid) return;
+
+        try
+        {
+            isProcessing = true;
+            string datasetId = Guid.NewGuid().ToString();
+
+            // Re-assign datasetId for the batch
+            foreach (var r in validationResult.NormalizedReadings)
+            {
+                r.DatasetId = datasetId;
+            }
+
+            var dataset = new EnergyDataset
+            {
+                Id = datasetId,
+                Name = datasetName,
+                OriginalFileName = uploadedFileName,
+                ImportDate = DateTime.UtcNow,
+                RecordCount = validationResult.ValidRecordsCount,
+                StartDate = validationResult.StartDate ?? DateTimeOffset.UtcNow,
+                EndDate = validationResult.EndDate ?? DateTimeOffset.UtcNow,
+                Status = validationResult.Warnings.Count > 0 ? ImportStatus.Warnings : ImportStatus.Success,
+                ValidationWarnings = validationResult.Warnings.Take(50).ToList(),
+                IsSampleData = false
+            };
+
+            await StorageService.SaveDatasetAsync(dataset);
+            await StorageService.SaveReadingsBatchAsync(validationResult.NormalizedReadings);
+
+            previewData = null;
+            validationResult = null;
+            uploadedFileBytes = null;
+
+            await LoadDatasetsAsync();
+            NavManager.NavigateTo("overview");
+        }
+        catch (Exception ex)
+        {
+            fileError = $"Error saving imported data: {ex.Message}";
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task LoadPresetSampleAsync(string path, string name)
+    {
+        try
+        {
+            isProcessing = true;
+            fileError = null;
+
+            var csvContent = await new HttpClient { BaseAddress = new Uri(NavManager.BaseUri) }.GetStringAsync(path);
+            uploadedFileBytes = System.Text.Encoding.UTF8.GetBytes(csvContent);
+            uploadedFileName = Path.GetFileName(path);
+            datasetName = name;
+
+            using var previewStream = new MemoryStream(uploadedFileBytes);
+            previewData = await CsvService.DetectDelimiterAndPreviewAsync(previewStream, uploadedFileName, uploadedFileBytes.Length, 20);
+            mapping = CsvService.AutoDetectMapping(previewData.Headers);
+
+            using var valStream = new MemoryStream(uploadedFileBytes);
+            validationResult = await CsvService.ProcessAndValidateAsync(valStream, mapping, Guid.NewGuid().ToString(), previewData.DetectedDelimiter);
+        }
+        catch (Exception ex)
+        {
+            fileError = $"Failed loading preset dataset: {ex.Message}";
+        }
+        finally
+        {
+            isProcessing = false;
+        }
+    }
+
+    private async Task DeleteDatasetAsync(string id)
+    {
+        await StorageService.DeleteDatasetAsync(id);
+        await LoadDatasetsAsync();
+    }
+}

@@ -1,0 +1,467 @@
+@page "/appliances"
+@inject IStorageService StorageService
+
+<PageTitle>PowerPulse — Appliance Management</PageTitle>
+
+<div class="dashboard-header">
+    <div>
+        <h1 class="header-greeting">Appliance Management</h1>
+        <div class="header-subtitle">Track device power ratings, operating schedules, and estimated load breakdowns</div>
+    </div>
+    <div class="header-actions">
+        <button class="btn-pulse" @onclick="OpenAddApplianceModal">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+            </svg>
+            Add Appliance
+        </button>
+    </div>
+</div>
+
+<!-- KPI Summary Cards -->
+<div class="kpi-grid">
+    <div class="kpi-card">
+        <div class="kpi-title">
+            <span>Tracked Devices</span>
+            <span class="badge-tag">Inventory</span>
+        </div>
+        <div class="kpi-value-container">
+            <span class="kpi-value">@appliances.Count</span>
+            <span class="kpi-unit">(@appliances.Count(a => a.IncludeInCalculation) active)</span>
+        </div>
+        <div>
+            <span style="font-size: 12px; color: var(--text-secondary);">@appliances.Count(a => a.IsEssential) essential devices</span>
+        </div>
+    </div>
+
+    <div class="kpi-card">
+        <div class="kpi-title">
+            <span>Est. Daily Load</span>
+            <span class="badge-tag">Calculated</span>
+        </div>
+        <div class="kpi-value-container">
+            <span class="kpi-value">@estDailyKwh.ToString("N1")</span>
+            <span class="kpi-unit">kWh/day</span>
+        </div>
+        <div>
+            <span style="font-size: 12px; color: var(--text-secondary);">
+                ~@(tariff?.Currency)@((estDailyKwh * (double)(tariff?.FlatRatePerKwh ?? 0.15m)).ToString("N2")) per day
+            </span>
+        </div>
+    </div>
+
+    <div class="kpi-card">
+        <div class="kpi-title">
+            <span>Est. 30-Day Load</span>
+            <span class="badge-tag">Calculated</span>
+        </div>
+        <div class="kpi-value-container">
+            <span class="kpi-value">@estMonthlyKwh.ToString("N1")</span>
+            <span class="kpi-unit">kWh/mo</span>
+        </div>
+        <div>
+            <span style="font-size: 12px; color: var(--text-secondary);">
+                ~@(tariff?.Currency)@((estMonthlyKwh * (double)(tariff?.FlatRatePerKwh ?? 0.15m)).ToString("N2")) est. cost
+            </span>
+        </div>
+    </div>
+
+    <div class="kpi-card">
+        <div class="kpi-title">
+            <span>Highest Consumer</span>
+            <span class="badge-tag">Major Draw</span>
+        </div>
+        <div class="kpi-value-container">
+            <span class="kpi-value" style="font-size: 18px; text-overflow: ellipsis; overflow: hidden; white-space: nowrap;">
+                @(highestConsumer != null ? highestConsumer.Name : "None")
+            </span>
+        </div>
+        <div>
+            <span style="font-size: 12px; color: var(--text-secondary);">
+                @(highestConsumer != null ? $"{ApplianceCalculator.CalculatePeriodKwh(highestConsumer, 30):N1} kWh/mo" : "—")
+            </span>
+        </div>
+    </div>
+</div>
+
+<!-- Measured vs Estimated Reconciliation Card -->
+<div class="pulse-card">
+    <div class="card-header-flex">
+        <div>
+            <h2 class="card-title-lg">Meter vs. Tracked Appliances Reconciliation (Last 30 Days)</h2>
+            <div class="card-subtitle-sm">
+                Compares imported actual meter records with sum of tracked appliance schedule estimates
+            </div>
+        </div>
+    </div>
+
+    @if (meter30DayKwh > 0)
+    {
+        var (measured, estimated, diff, isOver) = ApplianceCalculator.CompareWithMeter(meter30DayKwh, appliances, 30);
+        double estPct = measured > 0 ? (estimated / measured) * 100.0 : 0.0;
+
+        <div class="row align-items-center g-3">
+            <div class="col-md-4">
+                <div style="font-size: 12px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Measured Meter Readings</div>
+                <div style="font-size: 22px; font-weight: 700; color: var(--text-primary);">@measured.ToString("N1") kWh</div>
+            </div>
+            <div class="col-md-4">
+                <div style="font-size: 12px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Tracked Appliances Sum</div>
+                <div style="font-size: 22px; font-weight: 700; color: var(--primary-green);">@estimated.ToString("N1") kWh <small style="font-size: 14px; font-weight: normal;">(@estPct.ToString("N0")%)</small></div>
+            </div>
+            <div class="col-md-4">
+                <div style="font-size: 12px; color: var(--text-secondary); text-transform: uppercase; font-weight: 600;">Difference</div>
+                @if (isOver)
+                {
+                    <div style="font-size: 18px; font-weight: 700; color: #F59E0B;">
+                        +@Math.Abs(diff).ToString("N1") kWh (Overestimated)
+                    </div>
+                }
+                else
+                {
+                    <div style="font-size: 18px; font-weight: 700; color: var(--blue-gray);">
+                        @diff.ToString("N1") kWh Unallocated
+                    </div>
+                }
+            </div>
+        </div>
+        <div style="margin-top: 12px; font-size: 12px; color: #64748B;">
+            ℹ️ <em>Note:</em> Appliance energy figures are mathematical estimates from your power ratings and hours. They are not forced to match actual meter readings.
+        </div>
+    }
+    else
+    {
+        <div style="font-size: 13px; color: var(--text-secondary);">
+            Import energy readings to reconcile your physical meter records with appliance estimates.
+        </div>
+    }
+</div>
+
+<!-- Search, Filter & List -->
+<div class="pulse-card">
+    <div class="d-flex justify-content-between align-items-center flex-wrap gap-3 mb-3">
+        <!-- Search -->
+        <div style="min-width: 240px; flex: 1;">
+            <input type="text" class="form-control-custom" placeholder="Search appliances..." @bind="searchQuery" @bind:event="oninput" />
+        </div>
+
+        <!-- Category Filter -->
+        <div style="min-width: 180px;">
+            <select class="form-control-custom" @bind="selectedCategoryFilter">
+                <option value="">All Categories</option>
+                @foreach (ApplianceCategory cat in Enum.GetValues<ApplianceCategory>())
+                {
+                    <option value="@cat">@cat</option>
+                }
+            </select>
+        </div>
+
+        <!-- Sort -->
+        <div style="min-width: 180px;">
+            <select class="form-control-custom" @bind="sortOption">
+                <option value="consumption">Highest Estimated kWh</option>
+                <option value="name">Appliance Name (A-Z)</option>
+                <option value="watts">Rated Wattage</option>
+            </select>
+        </div>
+    </div>
+
+    <!-- Appliance Table -->
+    <div class="table-responsive">
+        <table class="pulse-table">
+            <thead>
+                <tr>
+                    <th>Appliance</th>
+                    <th>Category</th>
+                    <th>Power</th>
+                    <th>Qty</th>
+                    <th>Usage Schedule</th>
+                    <th>Standby</th>
+                    <th>Est. 30-Day Load</th>
+                    <th>Est. Cost</th>
+                    <th>Calculate?</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @if (FilteredAppliances.Count == 0)
+                {
+                    <tr>
+                        <td colspan="10" class="text-center py-4 text-muted">
+                            No appliances match the current filter.
+                        </td>
+                    </tr>
+                }
+                else
+                {
+                    @foreach (var app in FilteredAppliances)
+                    {
+                        var kwh30 = ApplianceCalculator.CalculatePeriodKwh(app, 30);
+                        var cost30 = ApplianceCalculator.EstimateAppliancePeriodCost(app, 30, tariff?.FlatRatePerKwh ?? 0.15m);
+                        <tr>
+                            <td>
+                                <strong>@app.Name</strong>
+                                @if (app.IsEssential)
+                                {
+                                    <span class="badge bg-danger ms-1" style="font-size: 10px;" title="Essential appliance">Essential</span>
+                                }
+                            </td>
+                            <td>@app.DisplayCategory</td>
+                            <td>@app.RatedWatts.ToString("N0") W</td>
+                            <td>@app.Quantity</td>
+                            <td>@app.HoursPerDay.ToString("N1") h/d (@app.UsageDaysPerWeek d/wk)</td>
+                            <td>@(app.StandbyWatts > 0 ? $"{app.StandbyWatts:N0} W ({app.StandbyHoursPerDay:N0} h)" : "—")</td>
+                            <td><strong>@kwh30.ToString("N1") kWh</strong></td>
+                            <td>@(tariff?.Currency)@cost30.ToString("N2")</td>
+                            <td>
+                                <input type="checkbox" class="form-check-input" checked="@app.IncludeInCalculation"
+                                       @onchange="(e) => ToggleAppliance(app, e.Value)"
+                                       title="Include in totals" />
+                            </td>
+                            <td>
+                                <div class="d-flex gap-1">
+                                    <button class="btn btn-sm btn-outline-secondary py-0 px-2" @onclick="() => EditAppliance(app)" title="Edit">
+                                        Edit
+                                    </button>
+                                    <button class="btn btn-sm btn-outline-danger py-0 px-2" @onclick="() => DeleteAppliance(app.Id)" title="Delete">
+                                        Delete
+                                    </button>
+                                </div>
+                            </td>
+                        </tr>
+                    }
+                }
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<!-- Add / Edit Appliance Modal -->
+@if (isModalOpen)
+{
+    <div class="modal-backdrop-custom" role="dialog" aria-modal="true">
+        <div class="modal-dialog-custom">
+            <div class="modal-header-custom">
+                <h3 class="card-title-lg" style="margin: 0;">
+                    @(editingAppliance.Id == null || !appliances.Any(a => a.Id == editingAppliance.Id) ? "Add New Appliance" : "Edit Appliance")
+                </h3>
+                <button type="button" class="btn-close" @onclick="CloseModal"></button>
+            </div>
+            <div class="modal-body-custom">
+                <div class="mb-3">
+                    <label class="form-label-custom">Appliance Name</label>
+                    <input type="text" class="form-control-custom" @bind="editingAppliance.Name" placeholder="e.g. Master Bedroom AC" />
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label-custom">Category</label>
+                        <select class="form-control-custom" @bind="editingAppliance.Category">
+                            @foreach (ApplianceCategory cat in Enum.GetValues<ApplianceCategory>())
+                            {
+                                <option value="@cat">@cat</option>
+                            }
+                        </select>
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label-custom">Custom Category (if Other)</label>
+                        <input type="text" class="form-control-custom" @bind="editingAppliance.CustomCategoryName"
+                               disabled="@(editingAppliance.Category != ApplianceCategory.Other)" placeholder="e.g. Workshop" />
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label-custom">Rated Power (Watts)</label>
+                        <input type="number" step="1" class="form-control-custom" @bind="editingAppliance.RatedWatts" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label-custom">Quantity</label>
+                        <input type="number" min="1" max="100" class="form-control-custom" @bind="editingAppliance.Quantity" />
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label-custom">Operating Hours per Day</label>
+                        <input type="number" step="0.5" min="0" max="24" class="form-control-custom" @bind="editingAppliance.HoursPerDay" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label-custom">Operating Days per Week</label>
+                        <input type="number" step="1" min="1" max="7" class="form-control-custom" @bind="editingAppliance.UsageDaysPerWeek" />
+                    </div>
+                </div>
+
+                <div class="row g-3 mb-3">
+                    <div class="col-md-6">
+                        <label class="form-label-custom">Standby Power (Watts, Optional)</label>
+                        <input type="number" step="0.5" min="0" class="form-control-custom" @bind="editingAppliance.StandbyWatts" />
+                    </div>
+                    <div class="col-md-6">
+                        <label class="form-label-custom">Standby Hours per Day</label>
+                        <input type="number" step="0.5" min="0" max="24" class="form-control-custom" @bind="editingAppliance.StandbyHoursPerDay" />
+                    </div>
+                </div>
+
+                <div class="mb-3">
+                    <label class="form-label-custom">Duty Cycle (0.1 to 1.0, e.g. 0.4 for compressor cycling)</label>
+                    <input type="number" step="0.05" min="0.1" max="1.0" class="form-control-custom" @bind="editingAppliance.DutyCycle" />
+                </div>
+
+                <div class="d-flex flex-column gap-2 border p-3 rounded" style="background: #FAFAFC;">
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="chkEssential" @bind="editingAppliance.IsEssential" />
+                        <label class="form-check-label" for="chkEssential" style="font-size: 13px;">
+                            <strong>Essential Appliance</strong> (Medical device, refrigerator, safety equipment — recommendations will never suggest switching off)
+                        </label>
+                    </div>
+                    <div class="form-check">
+                        <input class="form-check-input" type="checkbox" id="chkInclude" @bind="editingAppliance.IncludeInCalculation" />
+                        <label class="form-check-label" for="chkInclude" style="font-size: 13px;">
+                            Include in Household Calculations
+                        </label>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer-custom">
+                <button type="button" class="btn-pulse-outline" @onclick="CloseModal">Cancel</button>
+                <button type="button" class="btn-pulse" @onclick="SaveApplianceAsync">Save Appliance</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private List<Appliance> appliances = new();
+    private TariffPlan? tariff;
+    private double meter30DayKwh = 0;
+
+    private double estDailyKwh = 0;
+    private double estMonthlyKwh = 0;
+    private Appliance? highestConsumer;
+
+    private string searchQuery = "";
+    private string selectedCategoryFilter = "";
+    private string sortOption = "consumption";
+
+    private bool isModalOpen = false;
+    private Appliance editingAppliance = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAppliancesDataAsync();
+    }
+
+    private async Task LoadAppliancesDataAsync()
+    {
+        tariff = await StorageService.GetTariffAsync();
+        appliances = await StorageService.GetAppliancesAsync();
+
+        var readings = await StorageService.GetAllReadingsAsync();
+        if (readings.Count > 0)
+        {
+            var maxDate = readings.Max(r => r.Timestamp);
+            var minDate = maxDate.AddDays(-30);
+            meter30DayKwh = readings.Where(r => r.Timestamp >= minDate && r.Timestamp <= maxDate).Sum(r => r.ConsumptionKwh);
+        }
+
+        estDailyKwh = ApplianceCalculator.CalculateTotalDailyKwh(appliances);
+        estMonthlyKwh = ApplianceCalculator.CalculateTotalPeriodKwh(appliances, 30);
+        highestConsumer = appliances.Where(a => a.IncludeInCalculation)
+            .OrderByDescending(a => ApplianceCalculator.CalculatePeriodKwh(a, 30))
+            .FirstOrDefault();
+    }
+
+    private List<Appliance> FilteredAppliances
+    {
+        get
+        {
+            var list = appliances.AsEnumerable();
+
+            if (!string.IsNullOrWhiteSpace(searchQuery))
+            {
+                list = list.Where(a => a.Name.Contains(searchQuery, StringComparison.OrdinalIgnoreCase) ||
+                                       a.DisplayCategory.Contains(searchQuery, StringComparison.OrdinalIgnoreCase));
+            }
+
+            if (!string.IsNullOrWhiteSpace(selectedCategoryFilter) && Enum.TryParse<ApplianceCategory>(selectedCategoryFilter, out var cat))
+            {
+                list = list.Where(a => a.Category == cat);
+            }
+
+            return sortOption switch
+            {
+                "name" => list.OrderBy(a => a.Name).ToList(),
+                "watts" => list.OrderByDescending(a => a.RatedWatts * a.Quantity).ToList(),
+                _ => list.OrderByDescending(a => ApplianceCalculator.CalculatePeriodKwh(a, 30)).ToList()
+            };
+        }
+    }
+
+    private void OpenAddApplianceModal()
+    {
+        editingAppliance = new Appliance
+        {
+            Id = Guid.NewGuid().ToString(),
+            Quantity = 1,
+            HoursPerDay = 4,
+            UsageDaysPerWeek = 7,
+            DutyCycle = 1.0,
+            IncludeInCalculation = true
+        };
+        isModalOpen = true;
+    }
+
+    private void EditAppliance(Appliance app)
+    {
+        editingAppliance = new Appliance
+        {
+            Id = app.Id,
+            Name = app.Name,
+            Category = app.Category,
+            CustomCategoryName = app.CustomCategoryName,
+            RatedWatts = app.RatedWatts,
+            Quantity = app.Quantity,
+            HoursPerDay = app.HoursPerDay,
+            UsageDaysPerWeek = app.UsageDaysPerWeek,
+            StandbyWatts = app.StandbyWatts,
+            StandbyHoursPerDay = app.StandbyHoursPerDay,
+            DutyCycle = app.DutyCycle,
+            IsEssential = app.IsEssential,
+            IncludeInCalculation = app.IncludeInCalculation
+        };
+        isModalOpen = true;
+    }
+
+    private void CloseModal()
+    {
+        isModalOpen = false;
+    }
+
+    private async Task SaveApplianceAsync()
+    {
+        if (string.IsNullOrWhiteSpace(editingAppliance.Name))
+            return;
+
+        await StorageService.SaveApplianceAsync(editingAppliance);
+        isModalOpen = false;
+        await LoadAppliancesDataAsync();
+    }
+
+    private async Task DeleteAppliance(string id)
+    {
+        await StorageService.DeleteApplianceAsync(id);
+        await LoadAppliancesDataAsync();
+    }
+
+    private async Task ToggleAppliance(Appliance app, object? val)
+    {
+        if (val is bool isChecked)
+        {
+            app.IncludeInCalculation = isChecked;
+            await StorageService.SaveApplianceAsync(app);
+            await LoadAppliancesDataAsync();
+        }
+    }
+}

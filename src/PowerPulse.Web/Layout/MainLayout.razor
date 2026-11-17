@@ -1,0 +1,78 @@
+﻿@inherits LayoutComponentBase
+@inject IStorageService StorageService
+@inject NavigationManager NavManager
+
+<div class="app-layout">
+    <!-- Sidebar Navigation -->
+    <NavMenu IsMobileOpen="@isMobileMenuOpen" OnCloseMobile="CloseMobileMenu" Profile="@profile" />
+
+    <!-- Main Content Area -->
+    <div class="app-main">
+        <!-- Mobile Top Header -->
+        <header class="mobile-header">
+            <div class="brand-logo">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+                    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"></polygon>
+                </svg>
+                <span>Power<span class="brand-highlight">Pulse</span></span>
+            </div>
+            <button class="btn btn-sm btn-outline-light" @onclick="ToggleMobileMenu" aria-label="Toggle Navigation">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="3" y1="12" x2="21" y2="12"></line>
+                    <line x1="3" y1="6" x2="21" y2="6"></line>
+                    <line x1="3" y1="18" x2="21" y2="18"></line>
+                </svg>
+            </button>
+        </header>
+
+        <main class="page-container" role="main">
+            @if (isLoading)
+            {
+                <div class="text-center py-5">
+                    <div class="spinner-border text-success" role="status">
+                        <span class="visually-hidden">Loading PowerPulse...</span>
+                    </div>
+                </div>
+            }
+            else
+            {
+                @if (profile != null && !profile.IsOnboarded)
+                {
+                    <OnboardingWizard OnCompleted="HandleOnboardingCompletedAsync" />
+                }
+
+                @Body
+            }
+        </main>
+    </div>
+</div>
+
+@code {
+    private bool isMobileMenuOpen = false;
+    private bool isLoading = true;
+    private HouseholdProfile? profile;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await StorageService.InitializeAsync();
+        profile = await StorageService.GetProfileAsync();
+        isLoading = false;
+    }
+
+    private void ToggleMobileMenu()
+    {
+        isMobileMenuOpen = !isMobileMenuOpen;
+    }
+
+    private void CloseMobileMenu()
+    {
+        isMobileMenuOpen = false;
+    }
+
+    private async Task HandleOnboardingCompletedAsync()
+    {
+        profile = await StorageService.GetProfileAsync();
+        StateHasChanged();
+        NavManager.NavigateTo(NavManager.Uri, forceLoad: true);
+    }
+}

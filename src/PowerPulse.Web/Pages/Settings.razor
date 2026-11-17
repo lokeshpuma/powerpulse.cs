@@ -1,0 +1,450 @@
+@page "/settings"
+@inject IStorageService StorageService
+@inject IJSRuntime JS
+@inject NavigationManager NavManager
+
+<PageTitle>PowerPulse — Settings & Household Configuration</PageTitle>
+
+<div class="dashboard-header">
+    <div>
+        <h1 class="header-greeting">Settings & Household Configuration</h1>
+        <div class="header-subtitle">Manage household profile, electricity tariffs, emissions factors, and local database storage</div>
+    </div>
+    <div class="header-actions">
+        <button class="btn-pulse" @onclick="SaveAllSettingsAsync">
+            Save Changes
+        </button>
+    </div>
+</div>
+
+@if (saveSuccessMessage != null)
+{
+    <div class="alert alert-success alert-dismissible fade show" role="alert" style="font-size: 13px;">
+        @saveSuccessMessage
+        <button type="button" class="btn-close" @onclick='() => saveSuccessMessage = null'></button>
+    </div>
+}
+
+<!-- Settings Tabs -->
+<div class="d-flex gap-2 mb-4 border-bottom pb-2 flex-wrap">
+    <button class="btn @(activeTab == "profile" ? "btn-success" : "btn-light") btn-sm" @onclick='() => activeTab = "profile"'>
+        Household Profile
+    </button>
+    <button class="btn @(activeTab == "tariff" ? "btn-success" : "btn-light") btn-sm" @onclick='() => activeTab = "tariff"'>
+        Electricity Tariff
+    </button>
+    <button class="btn @(activeTab == "carbon" ? "btn-success" : "btn-light") btn-sm" @onclick='() => activeTab = "carbon"'>
+        Carbon Factor
+    </button>
+    <button class="btn @(activeTab == "app" ? "btn-success" : "btn-light") btn-sm" @onclick='() => activeTab = "app"'>
+        Application Preferences
+    </button>
+    <button class="btn @(activeTab == "data" ? "btn-danger" : "btn-light") btn-sm" @onclick='() => activeTab = "data"'>
+        Data & Storage Management
+    </button>
+</div>
+
+@if (activeTab == "profile")
+{
+    <!-- Household Profile Settings -->
+    <div class="pulse-card">
+        <h2 class="card-title-lg mb-3">Household Information</h2>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label-custom">Household Profile Name</label>
+                <input type="text" class="form-control-custom" @bind="profile.Name" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label-custom">Country or Region</label>
+                <input type="text" class="form-control-custom" @bind="profile.Country" />
+            </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label-custom">Preferred Currency Symbol</label>
+                <input type="text" class="form-control-custom" @bind="profile.Currency" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label-custom">Billing Cycle Start Day of Month (1 - 28)</label>
+                <input type="number" min="1" max="28" class="form-control-custom" @bind="profile.BillingCycleStartDay" />
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label-custom">Time Zone Identifier</label>
+            <input type="text" class="form-control-custom" @bind="profile.TimeZoneId" />
+        </div>
+    </div>
+}
+else if (activeTab == "tariff")
+{
+    <!-- Electricity Tariff Settings -->
+    <div class="pulse-card">
+        <h2 class="card-title-lg mb-3">Electricity Tariff Plan</h2>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label-custom">Tariff Structure Model</label>
+                <select class="form-control-custom" @bind="tariff.Type">
+                    <option value="@TariffType.Flat">Flat Rate (Single uniform rate per kWh)</option>
+                    <option value="@TariffType.Slab">Tiered Slabs (Progressive consumption tiers)</option>
+                    <option value="@TariffType.TimeOfUse">Time-of-Use (Peak / Normal / Off-peak)</option>
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label-custom">Plan Name</label>
+                <input type="text" class="form-control-custom" @bind="tariff.Name" />
+            </div>
+        </div>
+
+        @if (tariff.Type == TariffType.Flat)
+        {
+            <div class="mb-3">
+                <label class="form-label-custom">Electricity Rate per kWh (@tariff.Currency)</label>
+                <input type="number" step="0.001" class="form-control-custom" @bind="tariff.FlatRatePerKwh" />
+            </div>
+        }
+        else if (tariff.Type == TariffType.Slab)
+        {
+            <div class="mb-3">
+                <div class="d-flex justify-content-between align-items-center mb-2">
+                    <label class="form-label-custom mb-0">Progressive Consumption Tiers</label>
+                    <button class="btn btn-sm btn-outline-success py-0 px-2" @onclick="AddSlab">Add Tier Slab</button>
+                </div>
+                <div class="table-responsive">
+                    <table class="pulse-table" style="font-size: 12px;">
+                        <thead>
+                            <tr>
+                                <th>From kWh</th>
+                                <th>To kWh (leave blank if unlimited)</th>
+                                <th>Rate per kWh (@tariff.Currency)</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var s in tariff.Slabs)
+                            {
+                                <tr>
+                                    <td><input type="number" class="form-control-custom py-1" @bind="s.FromKwh" /></td>
+                                    <td><input type="number" class="form-control-custom py-1" @bind="s.ToKwh" placeholder="Max / Unlimited" /></td>
+                                    <td><input type="number" step="0.001" class="form-control-custom py-1" @bind="s.RatePerKwh" /></td>
+                                    <td>
+                                        <button class="btn btn-sm btn-outline-danger py-0 px-2" @onclick="() => RemoveSlab(s)">Remove</button>
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+        else if (tariff.Type == TariffType.TimeOfUse)
+        {
+            <div class="mb-3">
+                <label class="form-label-custom mb-2">Configured Time-of-Use Bands</label>
+                <div class="table-responsive">
+                    <table class="pulse-table" style="font-size: 12px;">
+                        <thead>
+                            <tr>
+                                <th>Band Name</th>
+                                <th>Start Hour (0-23)</th>
+                                <th>End Hour (0-23)</th>
+                                <th>Rate per kWh (@tariff.Currency)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach (var b in tariff.TimeBands)
+                            {
+                                <tr>
+                                    <td><strong>@b.Name</strong></td>
+                                    <td>@b.StartHour:00</td>
+                                    <td>@b.EndHour:00</td>
+                                    <td>
+                                        <input type="number" step="0.001" class="form-control-custom py-1" style="max-width: 140px;" @bind="b.RatePerKwh" />
+                                    </td>
+                                </tr>
+                            }
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        }
+
+        <div class="row g-3">
+            <div class="col-md-4">
+                <label class="form-label-custom">Monthly Fixed Customer Charge (@tariff.Currency)</label>
+                <input type="number" step="0.5" class="form-control-custom" @bind="tariff.FixedCharge" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label-custom">Regulatory Tax Percentage (%)</label>
+                <input type="number" step="0.1" class="form-control-custom" @bind="tariff.TaxPercentage" />
+            </div>
+            <div class="col-md-4">
+                <label class="form-label-custom">Other Fixed Monthly Surcharges (@tariff.Currency)</label>
+                <input type="number" step="0.5" class="form-control-custom" @bind="tariff.OtherCharges" />
+            </div>
+        </div>
+    </div>
+}
+else if (activeTab == "carbon")
+{
+    <!-- Carbon Factor Settings -->
+    <div class="pulse-card">
+        <h2 class="card-title-lg mb-3">Regional Electricity Emissions Factor</h2>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+            Set your local grid's carbon intensity factor to calculate estimated greenhouse gas emissions in kilograms of CO2 equivalent (kg CO2e).
+        </p>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label-custom">Grid Region / Balancing Authority</label>
+                <input type="text" class="form-control-custom" @bind="carbonFactor.Region" />
+            </div>
+            <div class="col-md-6">
+                <label class="form-label-custom">Emission Factor (kg CO2e per kWh)</label>
+                <input type="number" step="0.001" min="0" class="form-control-custom" @bind="carbonFactor.KgCo2ePerKwh" />
+            </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label-custom">Official Source Name</label>
+                <input type="text" class="form-control-custom" @bind="carbonFactor.SourceName" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label-custom">Reference Year</label>
+                <input type="number" class="form-control-custom" @bind="carbonFactor.ReferenceYear" />
+            </div>
+            <div class="col-md-3">
+                <label class="form-label-custom">Enable Carbon Calculation</label>
+                <div class="form-check form-switch mt-2">
+                    <input class="form-check-input" type="checkbox" id="chkCarbon" @bind="carbonFactor.IsConfigured" />
+                    <label class="form-check-label" for="chkCarbon" style="font-size: 13px;">Active</label>
+                </div>
+            </div>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label-custom">Source Reference URL</label>
+            <input type="text" class="form-control-custom" @bind="carbonFactor.SourceUrl" />
+        </div>
+    </div>
+}
+else if (activeTab == "app")
+{
+    <!-- Application Preferences -->
+    <div class="pulse-card">
+        <h2 class="card-title-lg mb-3">Application Preferences</h2>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label-custom">Default Dashboard Date Range</label>
+                <select class="form-control-custom" @bind="settings.DefaultDateRange">
+                    <option value="@DateRangeOption.Last7Days">Last 7 Days</option>
+                    <option value="@DateRangeOption.Last30Days">Last 30 Days</option>
+                    <option value="@DateRangeOption.CurrentMonth">Current Month</option>
+                    <option value="@DateRangeOption.PreviousMonth">Previous Month</option>
+                    <option value="@DateRangeOption.CurrentBillingCycle">Current Billing Cycle</option>
+                </select>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label-custom">Default Forecasting Algorithm</label>
+                <select class="form-control-custom" @bind="settings.DefaultForecastMethod">
+                    <option value="@ForecastMethod.RecentSevenDays">Recent 7-Day Rolling Trend</option>
+                    <option value="@ForecastMethod.AverageDaily">Month-to-Date Cycle Daily Average</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="row g-3 mb-3">
+            <div class="col-md-6">
+                <label class="form-label-custom">Anomaly Sensitivity Threshold (MAD Z-Score)</label>
+                <input type="number" step="0.1" min="1.5" max="6.0" class="form-control-custom" @bind="settings.AnomalySensitivityThreshold" />
+                <small style="color: var(--text-secondary); font-size: 11px;">Standard default is 3.5. Lower numbers flag more anomalies.</small>
+            </div>
+            <div class="col-md-6">
+                <label class="form-label-custom">Max Upload File Size (MB)</label>
+                <input type="number" class="form-control-custom" @bind="settings.MaxFileSizeMb" />
+            </div>
+        </div>
+    </div>
+}
+else if (activeTab == "data")
+{
+    <!-- Data & Storage Management -->
+    <div class="pulse-card">
+        <h2 class="card-title-lg mb-3">Local Database & Storage Management</h2>
+        <p style="font-size: 13px; color: var(--text-secondary); margin-bottom: 20px;">
+            PowerPulse stores all information inside your browser's IndexedDB. Use these controls to create full backups, restore state, or clear data.
+        </p>
+
+        <!-- Backup & Restore Actions -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <div class="p-3 border rounded h-100" style="background:#FAFAFC;">
+                    <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">Export Complete System Backup</div>
+                    <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">
+                        Downloads a JSON archive containing all profiles, tariffs, appliances, and imported energy readings.
+                    </div>
+                    <button class="btn-pulse" @onclick="DownloadBackupJsonAsync">Download JSON Backup</button>
+                </div>
+            </div>
+
+            <div class="col-md-6">
+                <div class="p-3 border rounded h-100" style="background:#FAFAFC;">
+                    <div style="font-weight: 600; font-size: 14px; margin-bottom: 4px;">Restore From Backup File</div>
+                    <div style="font-size: 12px; color: var(--text-secondary); margin-bottom: 12px;">
+                        Restores your complete database from a previously exported PowerPulse JSON backup.
+                    </div>
+                    <InputFile OnChange="HandleRestoreFileSelected" accept=".json" class="form-control" style="font-size: 12px;" />
+                </div>
+            </div>
+        </div>
+
+        <!-- Danger Zone -->
+        <h3 style="font-size: 15px; font-weight: 700; color: var(--warning-red); margin-top: 24px; margin-bottom: 12px;">
+            Danger Zone
+        </h3>
+        <div class="border border-danger rounded p-3" style="background: #FEF2F2;">
+            <div class="d-flex justify-content-between align-items-center flex-wrap gap-3">
+                <div>
+                    <div style="font-weight: 700; color: var(--warning-red); font-size: 14px;">Clear All Application Data</div>
+                    <div style="font-size: 12px; color: #7F1D1D;">
+                        Permanently deletes all stored energy readings, datasets, appliances, and resets configuration to factory state.
+                    </div>
+                </div>
+                <button class="btn-pulse-danger" @onclick="ConfirmClearAllData">
+                    Clear Everything
+                </button>
+            </div>
+        </div>
+    </div>
+}
+
+<!-- Confirmation Dialog for Destructive Actions -->
+@if (showConfirmClearModal)
+{
+    <div class="modal-backdrop-custom" role="dialog" aria-modal="true">
+        <div class="modal-dialog-custom" style="max-width: 480px;">
+            <div class="modal-header-custom" style="border-bottom-color: #FEE2E2;">
+                <h3 class="card-title-lg" style="color: var(--warning-red); margin: 0;">Confirm Data Deletion</h3>
+                <button type="button" class="btn-close" @onclick='() => showConfirmClearModal = false'></button>
+            </div>
+            <div class="modal-body-custom">
+                <p style="font-size: 14px; color: #7F1D1D; margin-bottom: 12px;">
+                    Are you completely sure you want to delete all local data?
+                </p>
+                <p style="font-size: 13px; color: #475569;">
+                    This will wipe all imported meter readings, datasets, appliances, and reset your profile. This action cannot be undone.
+                </p>
+            </div>
+            <div class="modal-footer-custom">
+                <button type="button" class="btn-pulse-outline" @onclick='() => showConfirmClearModal = false'>Cancel</button>
+                <button type="button" class="btn-pulse-danger" @onclick="ExecuteClearAllDataAsync">Yes, Delete All Data</button>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private string activeTab = "profile";
+    private HouseholdProfile profile = new();
+    private TariffPlan tariff = TariffPlan.CreateDefault();
+    private CarbonFactor carbonFactor = CarbonFactor.CreateDefault();
+    private AppSettings settings = new();
+
+    private string? saveSuccessMessage;
+    private bool showConfirmClearModal = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSettingsAsync();
+    }
+
+    private async Task LoadSettingsAsync()
+    {
+        profile = await StorageService.GetProfileAsync();
+        tariff = await StorageService.GetTariffAsync();
+        carbonFactor = await StorageService.GetCarbonFactorAsync();
+        settings = await StorageService.GetSettingsAsync();
+    }
+
+    private async Task SaveAllSettingsAsync()
+    {
+        tariff.Currency = profile.Currency;
+        await StorageService.SaveProfileAsync(profile);
+        await StorageService.SaveTariffAsync(tariff);
+        await StorageService.SaveCarbonFactorAsync(carbonFactor);
+        await StorageService.SaveSettingsAsync(settings);
+
+        saveSuccessMessage = "✓ All settings and configurations successfully saved to IndexedDB.";
+    }
+
+    private void AddSlab()
+    {
+        int nextIndex = tariff.Slabs.Count + 1;
+        double from = tariff.Slabs.Count > 0 && tariff.Slabs[^1].ToKwh.HasValue ? tariff.Slabs[^1].ToKwh!.Value : 0;
+        tariff.Slabs.Add(new TariffSlab
+        {
+            SlabIndex = nextIndex,
+            FromKwh = from,
+            ToKwh = from + 200,
+            RatePerKwh = 0.15m
+        });
+    }
+
+    private void RemoveSlab(TariffSlab slab)
+    {
+        tariff.Slabs.Remove(slab);
+    }
+
+    private async Task DownloadBackupJsonAsync()
+    {
+        string json = await StorageService.ExportBackupJsonAsync();
+        string filename = $"PowerPulse_FullBackup_{DateTime.UtcNow:yyyyMMdd_HHmm}.json";
+        await JS.InvokeVoidAsync("powerPulseFiles.downloadFile", filename, json, "application/json;charset=utf-8;");
+    }
+
+    private async Task HandleRestoreFileSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        try
+        {
+            using var stream = file.OpenReadStream(15 * 1024 * 1024);
+            using var reader = new StreamReader(stream);
+            string json = await reader.ReadToEndAsync();
+
+            var (success, msg) = await StorageService.RestoreBackupJsonAsync(json);
+            if (success)
+            {
+                await LoadSettingsAsync();
+                saveSuccessMessage = $"✓ {msg}";
+            }
+            else
+            {
+                saveSuccessMessage = $"❌ {msg}";
+            }
+        }
+        catch (Exception ex)
+        {
+            saveSuccessMessage = $"❌ Failed to read backup file: {ex.Message}";
+        }
+    }
+
+    private void ConfirmClearAllData()
+    {
+        showConfirmClearModal = true;
+    }
+
+    private async Task ExecuteClearAllDataAsync()
+    {
+        showConfirmClearModal = false;
+        await StorageService.ClearAllDataAsync();
+        await LoadSettingsAsync();
+        NavManager.NavigateTo("overview", forceLoad: true);
+    }
+}

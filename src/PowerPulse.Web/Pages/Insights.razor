@@ -1,0 +1,318 @@
+@page "/insights"
+@inject IStorageService StorageService
+@inject IJSRuntime JS
+
+<PageTitle>PowerPulse — Insights & Anomaly Detection</PageTitle>
+
+<div class="dashboard-header">
+    <div>
+        <h1 class="header-greeting">Intelligent Insights & Anomaly Detection</h1>
+        <div class="header-subtitle">Transparent statistical anomaly detection and evidence-based recommendations</div>
+    </div>
+    <div class="header-actions">
+        <div class="d-flex align-items-center gap-2">
+            <span style="font-size: 12px; color: var(--text-secondary);">Z-Score Sensitivity:</span>
+            <select class="form-control-custom" style="width: auto; padding: 4px 8px;" @bind="sensitivityThreshold" @bind:after="RunDetection">
+                <option value="2.5">High (2.5 — Flag minor deviations)</option>
+                <option value="3.0">Medium-High (3.0)</option>
+                <option value="3.5">Standard (3.5 — Recommended)</option>
+                <option value="4.0">Strict (4.0 — Only extreme spikes)</option>
+            </select>
+        </div>
+    </div>
+</div>
+
+@if (allReadings.Count == 0)
+{
+    <div class="pulse-card empty-state">
+        <h2 class="empty-state-title">No Data Available for Insights</h2>
+        <p class="empty-state-desc">Import energy readings to allow the anomaly detection engine to identify irregular consumption patterns.</p>
+        <NavLink href="import" class="btn-pulse">Go to Import</NavLink>
+    </div>
+}
+else
+{
+    <!-- Anomaly Summary KPI Row -->
+    <div class="kpi-grid">
+        <div class="kpi-card">
+            <div class="kpi-title">
+                <span>Anomalies Detected</span>
+                <span class="badge-tag">Rolling MAD</span>
+            </div>
+            <div class="kpi-value-container">
+                <span class="kpi-value" style="color: @(anomalyCount > 0 ? "var(--warning-red)" : "var(--primary-green)");">
+                    @anomalyCount
+                </span>
+                <span class="kpi-unit">days flagged</span>
+            </div>
+            <div>
+                <span style="font-size: 12px; color: var(--text-secondary);">Across @dailyAggregates.Count total observed days</span>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-title">
+                <span>Highest Consumption Spike</span>
+                <span class="badge-tag">Peak Alert</span>
+            </div>
+            <div class="kpi-value-container">
+                @if (maxSpikeAnomaly != null)
+                {
+                    <span class="kpi-value">@maxSpikeAnomaly.ConsumptionKwh.ToString("N1")</span>
+                    <span class="kpi-unit">kWh (+@maxSpikeAnomaly.PercentageDifference.ToString("N0")%)</span>
+                }
+                else
+                {
+                    <span class="kpi-value">—</span>
+                    <span class="kpi-unit">No spikes</span>
+                }
+            </div>
+            <div>
+                <span style="font-size: 12px; color: var(--text-secondary);">
+                    @(maxSpikeAnomaly != null ? $"Occurred on {maxSpikeAnomaly.Date:MMM dd, yyyy}" : "Within baseline range")
+                </span>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-title">
+                <span>Baseline Health</span>
+                <span class="badge-tag">Dataset</span>
+            </div>
+            <div class="kpi-value-container">
+                <span class="kpi-value">@(dailyAggregates.Count >= 14 ? "Robust" : "Building")</span>
+            </div>
+            <div>
+                <span style="font-size: 12px; color: var(--text-secondary);">
+                    @(dailyAggregates.Count >= 14 ? "Meets 14+ day rolling baseline" : $"{14 - dailyAggregates.Count} more days needed for full confidence")
+                </span>
+            </div>
+        </div>
+
+        <div class="kpi-card">
+            <div class="kpi-title">
+                <span>Smart Recommendations</span>
+                <span class="badge-tag">Actionable</span>
+            </div>
+            <div class="kpi-value-container">
+                <span class="kpi-value">@recommendations.Count(r => !r.IsDismissed)</span>
+                <span class="kpi-unit">active tips</span>
+            </div>
+            <div>
+                <span style="font-size: 12px; color: var(--text-secondary);">
+                    @recommendations.Count(r => r.IsReviewed) marked reviewed
+                </span>
+            </div>
+        </div>
+    </div>
+
+    <!-- Anomaly Timeline Chart -->
+    <div class="pulse-card">
+        <div class="card-header-flex">
+            <div>
+                <h2 class="card-title-lg">Anomaly Timeline & Historical Baseline</h2>
+                <div class="card-subtitle-sm">
+                    Green = Normal daily consumption | Points above threshold indicate statistical anomalies
+                </div>
+            </div>
+        </div>
+        <div style="height: 300px; position: relative;">
+            <canvas id="anomalyTimelineChart"></canvas>
+        </div>
+    </div>
+
+    <!-- Detected Anomalies Table -->
+    <div class="pulse-card">
+        <div class="card-header-flex">
+            <div>
+                <h2 class="card-title-lg">Detected Anomaly Events (@anomalyCount)</h2>
+                <div class="card-subtitle-sm">Full statistical audit of anomalous days</div>
+            </div>
+        </div>
+
+        @if (anomalyCount == 0)
+        {
+            <div class="p-4 text-center text-muted" style="font-size: 13px;">
+                ✓ No consumption anomalies detected with sensitivity threshold @sensitivityThreshold.
+            </div>
+        }
+        else
+        {
+            <div class="table-responsive">
+                <table class="pulse-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Measured Usage</th>
+                            <th>Historical Median</th>
+                            <th>Difference</th>
+                            <th>Percentage</th>
+                            <th>Robust Z-Score</th>
+                            <th>Alert Reason</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var a in anomalyResults.Where(r => r.IsAnomaly))
+                        {
+                            <tr>
+                                <td><strong>@a.Date.ToString("yyyy-MM-dd")</strong></td>
+                                <td>@a.ConsumptionKwh.ToString("N1") kWh</td>
+                                <td>@a.RollingMedianKwh.ToString("N1") kWh</td>
+                                <td>
+                                    <span style="color: @(a.DifferenceKwh > 0 ? "var(--warning-red)" : "var(--blue-gray)"); font-weight: 600;">
+                                        @(a.DifferenceKwh > 0 ? "+" : "")@a.DifferenceKwh.ToString("N1") kWh
+                                    </span>
+                                </td>
+                                <td>@(a.PercentageDifference > 0 ? "+" : "")@a.PercentageDifference.ToString("N0")%</td>
+                                <td>
+                                    <span class="badge @(Math.Abs(a.RobustZScore) >= 4.0 ? "bg-danger" : "bg-warning text-dark")">
+                                        @a.RobustZScore.ToString("N1")
+                                    </span>
+                                </td>
+                                <td>@a.Reason</td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+            </div>
+        }
+    </div>
+
+    <!-- Smart Energy Recommendations Section -->
+    <div class="pulse-card">
+        <div class="card-header-flex">
+            <div>
+                <h2 class="card-title-lg">Smart Energy Recommendations</h2>
+                <div class="card-subtitle-sm">Personalized optimizations derived from your actual usage patterns</div>
+            </div>
+            <div class="form-check form-switch">
+                <input class="form-check-input" type="checkbox" id="showDismissed" @bind="showDismissedRecs" />
+                <label class="form-check-label" for="showDismissed" style="font-size: 12px;">Show Dismissed</label>
+            </div>
+        </div>
+
+        <div class="recommendation-list">
+            @foreach (var rec in FilteredRecommendations)
+            {
+                <div class="recommendation-card @(rec.Priority == 1 ? "rec-priority-1" : rec.Priority == 2 ? "rec-priority-2" : "") @(rec.IsDismissed ? "opacity-50" : "")">
+                    <div class="rec-title">
+                        <span>@rec.Title</span>
+                        <div class="d-flex align-items-center gap-2">
+                            <span class="badge-tag" style="background:#FFF;">Priority @rec.Priority</span>
+                            @if (rec.IsReviewed)
+                            {
+                                <span class="badge bg-success" style="font-size: 10px;">Reviewed</span>
+                            }
+                            @if (rec.IsDismissed)
+                            {
+                                <span class="badge bg-secondary" style="font-size: 10px;">Dismissed</span>
+                            }
+                        </div>
+                    </div>
+                    <div class="rec-desc">@rec.Description</div>
+                    <div class="rec-evidence">
+                        <strong>Evidence:</strong> @rec.Evidence <br />
+                        <small style="color: #64748B;">Calculation: @rec.Calculation</small>
+                    </div>
+                    <div class="rec-suggestion">
+                        💡 <strong>Suggestion:</strong> @rec.PracticalSuggestion
+                    </div>
+                    <div class="rec-actions">
+                        @if (!rec.IsReviewed)
+                        {
+                            <button class="btn btn-sm btn-outline-success py-0 px-2" style="font-size: 11px;" @onclick="() => MarkReviewed(rec.Id)">
+                                Mark as Reviewed
+                            </button>
+                        }
+                        @if (!rec.IsDismissed)
+                        {
+                            <button class="btn btn-sm btn-outline-secondary py-0 px-2" style="font-size: 11px;" @onclick="() => Dismiss(rec.Id)">
+                                Dismiss
+                            </button>
+                        }
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    private List<EnergyReading> allReadings = new();
+    private List<DailyEnergyAggregation> dailyAggregates = new();
+    private List<AnomalyResult> anomalyResults = new();
+    private List<Recommendation> recommendations = new();
+    private List<Appliance> appliances = new();
+    private TariffPlan? tariff;
+    private HouseholdProfile? profile;
+
+    private double sensitivityThreshold = 3.5;
+    private int anomalyCount = 0;
+    private AnomalyResult? maxSpikeAnomaly;
+    private bool showDismissedRecs = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        profile = await StorageService.GetProfileAsync();
+        tariff = await StorageService.GetTariffAsync();
+        appliances = await StorageService.GetAppliancesAsync();
+        allReadings = await StorageService.GetAllReadingsAsync();
+
+        RunDetection();
+    }
+
+    private void RunDetection()
+    {
+        if (allReadings.Count == 0) return;
+
+        dailyAggregates = EnergyAnalyticsEngine.AggregateDaily(allReadings);
+        anomalyResults = AnomalyDetectionEngine.DetectAnomalies(dailyAggregates, 14, sensitivityThreshold);
+        anomalyCount = anomalyResults.Count(a => a.IsAnomaly);
+        maxSpikeAnomaly = anomalyResults.Where(a => a.IsAnomaly && a.DifferenceKwh > 0).OrderByDescending(a => a.DifferenceKwh).FirstOrDefault();
+
+        // Recommendations
+        var dateRange = EnergyAnalyticsEngine.ResolveDateRange(DateRangeOption.Last30Days, allReadings.Max(r => r.Timestamp));
+        recommendations = RecommendationEngine.GenerateRecommendations(
+            allReadings, appliances, tariff ?? TariffPlan.CreateDefault(), dateRange);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (anomalyResults.Count > 0)
+        {
+            await RenderTimelineChartAsync();
+        }
+    }
+
+    private async Task RenderTimelineChartAsync()
+    {
+        try
+        {
+            var labels = anomalyResults.Select(a => a.Date.ToString("MMM dd")).ToList();
+            var measuredData = anomalyResults.Select(a => a.ConsumptionKwh).ToList();
+            var medianData = anomalyResults.Select(a => a.RollingMedianKwh).ToList();
+
+            await JS.InvokeVoidAsync("powerPulseCharts.renderLineChart",
+                "anomalyTimelineChart", labels, measuredData, medianData, "kWh", "Consumption vs Median");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error rendering anomaly chart: {ex.Message}");
+        }
+    }
+
+    private IEnumerable<Recommendation> FilteredRecommendations =>
+        showDismissedRecs ? recommendations : recommendations.Where(r => !r.IsDismissed);
+
+    private void MarkReviewed(string id)
+    {
+        var r = recommendations.FirstOrDefault(x => x.Id == id);
+        if (r != null) r.IsReviewed = true;
+    }
+
+    private void Dismiss(string id)
+    {
+        var r = recommendations.FirstOrDefault(x => x.Id == id);
+        if (r != null) r.IsDismissed = true;
+    }
+}
