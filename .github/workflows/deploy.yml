@@ -41,11 +41,30 @@ jobs:
       - name: Publish
         run: dotnet publish src/PowerPulse.Web/PowerPulse.Web.csproj -c Release -o release --nologo
 
-      - name: Fix Base Path for GitHub Pages
+      - name: Fix Base Path and Asset Fallbacks for GitHub Pages
         run: |
           sed -i 's|<base href="/" />|<base href="/powerpulse-cs/" />|g' release/wwwroot/index.html || true
           cp release/wwwroot/index.html release/wwwroot/404.html
           touch release/wwwroot/.nojekyll
+          cd release/wwwroot/_framework
+          for f in dotnet.*.js; do
+            if [[ "$f" != *.native.* && "$f" != *.runtime.* ]]; then
+              cp "$f" dotnet.js || true
+            fi
+          done
+          for f in dotnet.native.*.js; do
+            cp "$f" dotnet.native.js || true
+          done
+          for f in dotnet.runtime.*.js; do
+            cp "$f" dotnet.runtime.js || true
+          done
+          for f in dotnet.native.*.wasm; do
+            cp "$f" dotnet.native.wasm || true
+          done
+          for f in blazor.webassembly.*.js; do
+            cp "$f" blazor.webassembly.js || true
+          done
+          cd ../../..
 
       - name: Setup Pages
         uses: actions/configure-pages@v4

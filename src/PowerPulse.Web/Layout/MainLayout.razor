@@ -54,9 +54,19 @@
 
     protected override async Task OnInitializedAsync()
     {
-        await StorageService.InitializeAsync();
-        profile = await StorageService.GetProfileAsync();
-        isLoading = false;
+        try
+        {
+            await StorageService.InitializeAsync();
+            profile = await StorageService.GetProfileAsync();
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error during initialization: {ex.Message}");
+        }
+        finally
+        {
+            isLoading = false;
+        }
     }
 
     private void ToggleMobileMenu()
