@@ -1,0 +1,13 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/PowerPulse.Core/PowerPulse.Core.csproj" />
+    <Project Path="src/PowerPulse.Infrastructure/PowerPulse.Infrastructure.csproj" />
+    <Project Path="src/PowerPulse.ML/PowerPulse.ML.csproj" />
+    <Project Path="src/PowerPulse.Web/PowerPulse.Web.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/PowerPulse.Core.Tests/PowerPulse.Core.Tests.csproj" />
+    <Project Path="tests/PowerPulse.Infrastructure.Tests/PowerPulse.Infrastructure.Tests.csproj" />
+    <Project Path="tests/PowerPulse.Web.Tests/PowerPulse.Web.Tests.csproj" />
+  </Folder>
+</Solution>
